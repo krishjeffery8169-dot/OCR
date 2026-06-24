@@ -336,7 +336,7 @@
         </div>
         <div class="progress" aria-label="处理进度"><span id="progressBar"></span></div>
 
-        <div class="note">真实场景模式会加入旧纸泛黄、暗角、纸边阴影、折痕、污渍、轻微失焦和拍摄背景。下载 ZIP 会自动附带 manifest.csv，记录原图、输出图、场景、强度、密度、覆盖区域和版本号。</div>
+        <div class="note">真实场景模式会加入旧纸泛黄、暗角、纸边阴影、折痕、揉皱褶皱、局部字体模糊、污渍、轻微失焦和拍摄背景。下载 ZIP 会自动附带 manifest.csv，记录原图、输出图、场景、强度、密度、覆盖区域和版本号。</div>
       </section>
 
       <section class="card panel">
@@ -776,6 +776,104 @@
       }
     }
 
+    function drawCrumpleWrinkles(canvas, strength, sceneMode) {
+      if (sceneMode === "handwriting") return;
+      const ctx = canvas.getContext("2d");
+      const w = canvas.width;
+      const h = canvas.height;
+      const level = { light: 0.55, medium: 1, heavy: 1.45 }[strength] || 1;
+      const count = Math.ceil((sceneMode === "folded_dirty" ? 10 : 6) * level);
+
+      for (let i = 0; i < count; i++) {
+        const startX = rint(-w * 0.08, w * 0.92);
+        const startY = rint(h * 0.04, h * 0.94);
+        const length = rint(Math.min(w, h) * 0.18, Math.min(w, h) * 0.58);
+        const angle = (rand() * Math.PI) - Math.PI / 2;
+        const amp = rint(5, 22) * level;
+        const points = [];
+        const steps = rint(5, 9);
+        for (let j = 0; j <= steps; j++) {
+          const t = j / steps;
+          const wave = Math.sin(t * Math.PI * rint(1, 3)) * amp * (0.35 + rand() * 0.65);
+          const px = startX + Math.cos(angle) * length * t + Math.cos(angle + Math.PI / 2) * wave;
+          const py = startY + Math.sin(angle) * length * t + Math.sin(angle + Math.PI / 2) * wave;
+          points.push([px, py]);
+        }
+
+        ctx.save();
+        ctx.lineCap = "round";
+        ctx.lineJoin = "round";
+        ctx.globalCompositeOperation = "multiply";
+        ctx.strokeStyle = "rgba(65,58,48,.34)";
+        ctx.lineWidth = Math.max(1.1, Math.min(w, h) / 520);
+        ctx.beginPath();
+        ctx.moveTo(points[0][0], points[0][1]);
+        for (let j = 1; j < points.length - 1; j++) {
+          const midX = (points[j][0] + points[j + 1][0]) / 2;
+          const midY = (points[j][1] + points[j + 1][1]) / 2;
+          ctx.quadraticCurveTo(points[j][0], points[j][1], midX, midY);
+        }
+        ctx.stroke();
+
+        ctx.globalCompositeOperation = "screen";
+        ctx.strokeStyle = `rgba(255,255,245,${0.20 * level})`;
+        ctx.lineWidth = Math.max(2, Math.min(w, h) / 180);
+        ctx.translate(rint(-3, 3), rint(-3, 3));
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      const temp = document.createElement("canvas");
+      temp.width = w;
+      temp.height = h;
+      temp.getContext("2d").drawImage(canvas, 0, 0);
+      ctx.save();
+      ctx.globalAlpha = 0.10 * level;
+      ctx.filter = `blur(${Math.max(1.4, 2.4 * level)}px)`;
+      for (let i = 0; i < Math.ceil(3 * level); i++) {
+        const x = rint(w * 0.05, w * 0.80);
+        const y = rint(h * 0.10, h * 0.82);
+        const rw = rint(w * 0.16, w * 0.34);
+        const rh = rint(h * 0.035, h * 0.10);
+        ctx.save();
+        ctx.beginPath();
+        ctx.ellipse(x + rw / 2, y + rh / 2, rw / 2, rh / 2, (rand() - 0.5) * 0.7, 0, Math.PI * 2);
+        ctx.clip();
+        ctx.drawImage(temp, 0, 0);
+        ctx.restore();
+      }
+      ctx.restore();
+    }
+
+    function addLocalTextBlur(canvas, strength, sceneMode) {
+      if (sceneMode === "handwriting" || strength === "light") return;
+      const ctx = canvas.getContext("2d");
+      const w = canvas.width;
+      const h = canvas.height;
+      const temp = document.createElement("canvas");
+      temp.width = w;
+      temp.height = h;
+      temp.getContext("2d").drawImage(canvas, 0, 0);
+      const patches = strength === "heavy" ? rint(5, 8) : rint(3, 5);
+
+      ctx.save();
+      ctx.filter = `blur(${strength === "heavy" ? 1.25 : 0.85}px)`;
+      ctx.globalAlpha = strength === "heavy" ? 0.88 : 0.72;
+      for (let i = 0; i < patches; i++) {
+        const pw = rint(w * 0.16, w * 0.38);
+        const ph = rint(h * 0.025, h * 0.075);
+        const px = rint(w * 0.05, Math.max(w * 0.06, w - pw - w * 0.05));
+        const py = rint(h * 0.10, Math.max(h * 0.12, h - ph - h * 0.10));
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(px, py, pw, ph);
+        ctx.clip();
+        ctx.drawImage(temp, 0, 0);
+        ctx.restore();
+      }
+      ctx.restore();
+    }
+
     function drawDeskBackground(ctx, w, h, sceneMode) {
       const base = ctx.createLinearGradient(0, 0, w, h);
       if (sceneMode === "old_scan") {
@@ -844,7 +942,9 @@
 
     function makeRealSceneCanvas(source, sceneMode, strength) {
       if (sceneMode === "handwriting") return source;
+      addLocalTextBlur(source, strength, sceneMode);
       drawPaperAging(source, strength, sceneMode);
+      drawCrumpleWrinkles(source, strength, sceneMode);
 
       const margin = sceneMode === "old_scan" ? 0.06 : 0.18;
       const out = document.createElement("canvas");
