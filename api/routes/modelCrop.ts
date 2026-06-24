@@ -233,6 +233,28 @@ function parseCsvRows(csv: string) {
   return rows;
 }
 
+function csvCell(value: unknown) {
+  const text = String(value ?? "");
+  return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+function buildResultsCsv(results: QuestionResult[]) {
+  const headers = ["题号", "图片名", "学段", "学科", "题型", "匹配维度", "置信度", "待确认", "模型/人工理由", "题面文本"];
+  const rows = results.map((item) => [
+    item.qid,
+    item.imageName,
+    item.stage,
+    item.subject,
+    item.qtype,
+    item.dimension,
+    item.confidence,
+    item.doubtful ? "是" : "否",
+    item.reason,
+    item.text,
+  ]);
+  return [headers, ...rows].map((row) => row.map(csvCell).join(",")).join("\r\n");
+}
+
 async function runTask(task: ModelTask, input: {
   file: Express.Multer.File;
   stage: string;
@@ -425,6 +447,19 @@ router.get("/tasks/:taskId/images/:fileName", async (req: Request, res: Response
   const fileName = path.basename(req.params.fileName);
   const imagePath = path.join(task.resultDir, "image", fileName);
   res.sendFile(imagePath);
+});
+
+router.get("/tasks/:taskId/export.csv", (req: Request, res: Response): void => {
+  const task = tasks.get(req.params.taskId);
+  if (!task) {
+    res.status(404).json({ success: false, error: "任务不存在或服务已重启。" });
+    return;
+  }
+  const csv = buildResultsCsv(task.results);
+  const fileName = encodeURIComponent(`${task.taskId}_模型截题结果.csv`);
+  res.setHeader("Content-Type", "text/csv; charset=utf-8");
+  res.setHeader("Content-Disposition", `attachment; filename*=UTF-8''${fileName}`);
+  res.send(`\uFEFF${csv}`);
 });
 
 router.patch("/tasks/:taskId/questions/:qid", expressJsonPatchHandler);

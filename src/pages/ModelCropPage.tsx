@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
-import { AlertTriangle, BrainCircuit, CheckCircle2, FileText, FolderOpen, Loader2, Sparkles } from "lucide-react";
-import { createModelCropTask, updateModelCropQuestion, type ModelCropResult, type ModelCropTask } from "@/utils/modelCropApi";
+import { AlertTriangle, BrainCircuit, CheckCircle2, Download, FileText, FolderOpen, Loader2, Sparkles } from "lucide-react";
+import { createModelCropTask, getModelCropExportUrl, updateModelCropQuestion, type ModelCropResult, type ModelCropTask } from "@/utils/modelCropApi";
 
 const defaultDimensionText = `示例：
 - 函数与导数题：必含函数图象或导函数图象，考察图象与性质综合。
@@ -318,9 +318,18 @@ export default function ModelCropPage() {
 
       {task?.results.length ? (
         <section className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h3 className="text-lg font-semibold">结果审核</h3>
-            <p className="text-sm text-zinc-500">逐题检查模型判断，错误项可直接修正。</p>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h3 className="text-lg font-semibold">结果审核</h3>
+              <p className="text-sm text-zinc-500">逐题检查模型判断，错误项可直接修正。</p>
+            </div>
+            <a
+              href={getModelCropExportUrl(task.taskId)}
+              className="inline-flex items-center gap-2 rounded-2xl bg-cyan-200 px-4 py-3 text-sm font-bold text-zinc-950 transition hover:bg-cyan-100"
+            >
+              <Download className="h-4 w-4" />
+              导出结果表
+            </a>
           </div>
           {task.results.map((result) => (
             <ResultCard key={result.qid + result.imageName} taskId={task.taskId} result={result} onUpdated={replaceResult} />

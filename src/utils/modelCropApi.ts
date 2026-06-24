@@ -82,3 +82,7 @@ export async function updateModelCropQuestion(taskId: string, qid: string, input
   });
   return readEnvelope<ModelCropResult>(response);
 }
+
+export function getModelCropExportUrl(taskId: string) {
+  return `/api/model-crop/tasks/${encodeURIComponent(taskId)}/export.csv`;
+}
