@@ -318,6 +318,7 @@ Require-Value $config.subject "subject"
 $hasConfiguredItems = ($null -ne $config.items -and $config.items.Count -gt 0)
 $autoDetectImageQuestions = ($config.autoDetectImageQuestions -eq $true)
 $onlyImageQuestions = ($config.onlyImageQuestions -ne $false)
+$groupSharedMaterial = ($config.groupSharedMaterial -ne $false)
 if (-not $hasConfiguredItems -and -not $autoDetectImageQuestions) {
   throw "配置缺少题目列表：items；如果要自动扫描题目，请设置 autoDetectImageQuestions=true"
 }
@@ -426,38 +427,54 @@ if ($hasConfiguredItems) {
     $questionInfos[$q].SafeHasImage = (Has-ImageInRange $paragraphs ([int]$questionInfos[$q].SafeStart) $end)
   }
 
-  $q=0
-  while($q -lt $questionInfos.Count){
-    $info = $questionInfos[$q]
-    $groupLastIndex = $q
-    $groupEndQid = [int]$info.Qid
-    $groupHasImage = [bool]$info.SafeHasImage
-    if([bool]$info.LeadingHasContent){
-      for($nextIndex=$q+1;$nextIndex -lt $questionInfos.Count;$nextIndex++){
-        $next = $questionInfos[$nextIndex]
-        if([bool]$next.LeadingHasContent){ break }
-        if([bool]$next.OwnHasImage){ break }
-        $groupLastIndex = $nextIndex
-        $groupEndQid = [int]$next.Qid
-        $groupHasImage = $groupHasImage -or [bool]$next.SafeHasImage
+  if(-not $groupSharedMaterial){
+    foreach($info in $questionInfos){
+      if(((-not $onlyImageQuestions) -or [bool]$info.SafeHasImage)){
+        $itemsToRun += [pscustomobject]@{
+          qid = [string]$info.Qid
+          type = [string]$config.defaultType
+          qtype = [string]$config.defaultQtype
+          knowledgePoint = [string]$config.defaultKnowledgePoint
+          qtypeKnowledgeMap = (Get-KnowledgeMapText $config.defaultKnowledgeMap)
+          doubtful = ($config.defaultDoubtful -eq $true)
+          remark = if($config.defaultDoubtful -eq $true){"自动扫描题，按单题截取，题目类型存疑"}else{"自动扫描题，按单题截取"}
+        }
       }
     }
-    if(((-not $onlyImageQuestions) -or $groupHasImage)){
-      $qidText = [string]$info.Qid
-      if($groupEndQid -gt [int]$info.Qid){
-        $qidText = "$($info.Qid)-$groupEndQid"
+  } else {
+    $q=0
+    while($q -lt $questionInfos.Count){
+      $info = $questionInfos[$q]
+      $groupLastIndex = $q
+      $groupEndQid = [int]$info.Qid
+      $groupHasImage = [bool]$info.SafeHasImage
+      if([bool]$info.LeadingHasContent){
+        for($nextIndex=$q+1;$nextIndex -lt $questionInfos.Count;$nextIndex++){
+          $next = $questionInfos[$nextIndex]
+          if([bool]$next.LeadingHasContent){ break }
+          if([bool]$next.OwnHasImage){ break }
+          $groupLastIndex = $nextIndex
+          $groupEndQid = [int]$next.Qid
+          $groupHasImage = $groupHasImage -or [bool]$next.SafeHasImage
+        }
       }
-      $itemsToRun += [pscustomobject]@{
-        qid = $qidText
-        type = [string]$config.defaultType
-        qtype = [string]$config.defaultQtype
-        knowledgePoint = [string]$config.defaultKnowledgePoint
-        qtypeKnowledgeMap = (Get-KnowledgeMapText $config.defaultKnowledgeMap)
-        doubtful = ($config.defaultDoubtful -eq $true)
-        remark = if($groupEndQid -gt [int]$info.Qid){"自动扫描题；检测到共用材料，已合并题组"}elseif($config.defaultDoubtful -eq $true){"自动扫描题，题目类型存疑"}else{"自动扫描题"}
+      if(((-not $onlyImageQuestions) -or $groupHasImage)){
+        $qidText = [string]$info.Qid
+        if($groupEndQid -gt [int]$info.Qid){
+          $qidText = "$($info.Qid)-$groupEndQid"
+        }
+        $itemsToRun += [pscustomobject]@{
+          qid = $qidText
+          type = [string]$config.defaultType
+          qtype = [string]$config.defaultQtype
+          knowledgePoint = [string]$config.defaultKnowledgePoint
+          qtypeKnowledgeMap = (Get-KnowledgeMapText $config.defaultKnowledgeMap)
+          doubtful = ($config.defaultDoubtful -eq $true)
+          remark = if($groupEndQid -gt [int]$info.Qid){"自动扫描题；检测到共用材料，已合并题组"}elseif($config.defaultDoubtful -eq $true){"自动扫描题，题目类型存疑"}else{"自动扫描题"}
+        }
       }
+      $q = $groupLastIndex + 1
     }
-    $q = $groupLastIndex + 1
   }
   if($onlyImageQuestions){
     Write-Host "自动扫描到带图题：$($itemsToRun.Count) 题"

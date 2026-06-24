@@ -145,8 +145,12 @@ async function callModel(params: {
 
   const imageBase64 = params.useVision ? await fs.readFile(params.imagePath, "base64") : "";
   const prompt = [
-    "你是教育题库维度标注助手。只能从用户给定维度说明中选择最匹配的维度，不允许自造维度。",
+    "你是教育题库维度标注助手。你的任务是根据题图和题面文字识别题型，并从用户给定维度说明中选择最匹配的维度。",
+    "题图和题面文字是主要依据；文件名只能作为辅助信息，不能因为文件名或旧规则直接决定维度。",
+    "如果题图包含几何字母、函数符号、英文变量、A1B1C1、f(x) 等数学符号，必须把它们作为题目条件理解。",
+    "只能从用户给定维度说明中选择最匹配的维度，不允许自造维度。",
     "如果无法明确判断，dimension 必须返回“待确认”，doubtful 返回 true。",
+    "qtype 必须根据题目形态判断：有 A/B/C/D 选项的是选择；有空格/括号待填的是填空；有(1)(2)(3)步骤或要求求证/计算过程的是解答。",
     "请只返回 JSON，不要输出解释性段落。",
     `学段：${params.stage}`,
     `学科：${params.subject}`,
@@ -292,6 +296,7 @@ async function runTask(task: ModelTask, input: {
       screenshotTimeoutMs: 30000,
       autoDetectImageQuestions: true,
       onlyImageQuestions: input.onlyImageQuestions,
+      groupSharedMaterial: false,
       defaultType: `${input.subject}图像题`,
       defaultQtype: "选择_填空_解答",
       defaultKnowledgePoint: candidates.join("|") || "待确认",
