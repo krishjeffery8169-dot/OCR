@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>手写干扰网页版</title>
+  <title>题图真实场景增强工具</title>
   <style>
     :root {
       --ink: #1f221f;
@@ -169,8 +169,8 @@
     <section class="hero">
       <div class="card hero-main">
         <div class="eyebrow">PURE WEB VERSION</div>
-        <h1>手写干扰网页版</h1>
-        <p class="lead">打开网页即可使用：上传图片或选择图片文件夹，在浏览器内叠加真人草稿式手写干扰，然后下载 ZIP。无需 Python、无需本地服务、不会上传原图。</p>
+        <h1>题图真实场景增强工具</h1>
+        <p class="lead">打开网页即可使用：上传图片或选择图片文件夹，在浏览器内叠加真人草稿式手写干扰，也可以生成旧纸翻拍、斜拍阴影、折痕污渍等真实拍摄效果。无需 Python、无需本地服务、不会上传原图。</p>
       </div>
       <div class="card status">
         <div class="status-item"><strong>处理方式</strong><span>浏览器本地处理</span></div>
@@ -196,6 +196,15 @@
         <p class="hint">支持 png、jpg、jpeg、webp、bmp。浏览器不允许网页直接读取任意本地路径，所以这里使用上传/选择文件夹方式。</p>
 
         <h2 style="margin-top: 22px;">2. 参数</h2>
+        <label for="sceneMode">增强场景</label>
+        <select id="sceneMode">
+          <option value="handwriting" selected>仅手写干扰</option>
+          <option value="old_scan">旧试卷扫描感</option>
+          <option value="phone_desk">手机桌面斜拍</option>
+          <option value="folded_dirty">折页旧纸翻拍</option>
+        </select>
+        <p class="hint">“手机桌面斜拍”和“折页旧纸翻拍”会改变画布尺寸，模拟背景、阴影、透视和拍摄感。</p>
+
         <div class="options">
           <label class="radio-card">
             <input type="radio" name="density" value="light">
@@ -235,17 +244,29 @@
             <input id="variants" type="number" min="1" max="5" value="1">
           </div>
         </div>
-        <label for="seed">随机种子</label>
-        <input id="seed" type="number" placeholder="可不填；填写后结果可复现">
+        <div class="two">
+          <div>
+            <label for="strength">真实化强度</label>
+            <select id="strength">
+              <option value="light">轻度</option>
+              <option value="medium" selected>中度</option>
+              <option value="heavy">重度</option>
+            </select>
+          </div>
+          <div>
+            <label for="seed">随机种子</label>
+            <input id="seed" type="number" placeholder="可不填；填写后结果可复现">
+          </div>
+        </div>
 
         <div class="buttons" style="margin-top: 18px;">
-          <button id="processBtn">生成手写干扰</button>
+          <button id="processBtn">生成增强图片</button>
           <button id="downloadBtn" class="ghost" disabled>下载 ZIP</button>
           <button id="clearBtn" class="secondary">清空</button>
         </div>
         <div class="progress" aria-label="处理进度"><span id="progressBar"></span></div>
 
-        <div class="note">当前版本只做手写体干扰，不做倾斜、模糊、反光或做旧。下载 ZIP 会自动附带 manifest.csv，记录原图、输出图、密度、覆盖区域和版本号。</div>
+        <div class="note">真实场景模式会加入旧纸泛黄、暗角、纸边阴影、折痕、污渍、轻微失焦和拍摄背景。下载 ZIP 会自动附带 manifest.csv，记录原图、输出图、场景、强度、密度、覆盖区域和版本号。</div>
       </section>
 
       <section class="card panel">
@@ -458,7 +479,207 @@
       ctx.globalAlpha = 1;
     }
 
-    async function processOne(file, density, mime, region) {
+    function drawPaperAging(canvas, strength, sceneMode) {
+      const ctx = canvas.getContext("2d");
+      const w = canvas.width;
+      const h = canvas.height;
+      const level = { light: 0.55, medium: 1, heavy: 1.45 }[strength] || 1;
+
+      ctx.save();
+      ctx.globalCompositeOperation = "multiply";
+      const tint = ctx.createLinearGradient(0, 0, w, h);
+      tint.addColorStop(0, `rgba(238, 222, 185, ${0.12 * level})`);
+      tint.addColorStop(0.42, `rgba(246, 239, 214, ${0.07 * level})`);
+      tint.addColorStop(1, `rgba(190, 177, 145, ${0.13 * level})`);
+      ctx.fillStyle = tint;
+      ctx.fillRect(0, 0, w, h);
+      ctx.restore();
+
+      ctx.save();
+      ctx.globalAlpha = 0.18 * level;
+      for (let i = 0; i < Math.min(5200, Math.floor(w * h / 900)); i++) {
+        const g = rint(85, 190);
+        ctx.fillStyle = `rgb(${g},${g},${Math.max(70, g - 14)})`;
+        ctx.fillRect(rand() * w, rand() * h, rand() < 0.86 ? 1 : 2, rand() < 0.86 ? 1 : 2);
+      }
+      ctx.restore();
+
+      ctx.save();
+      ctx.globalCompositeOperation = "multiply";
+      for (let i = 0; i < Math.ceil(9 * level); i++) {
+        const x = rand() * w;
+        const y = rand() * h;
+        const rx = rint(w * 0.025, w * 0.12);
+        const ry = rint(h * 0.01, h * 0.055);
+        const stain = ctx.createRadialGradient(x, y, 1, x, y, Math.max(rx, ry));
+        stain.addColorStop(0, `rgba(125, 105, 72, ${0.05 + rand() * 0.07})`);
+        stain.addColorStop(1, "rgba(125, 105, 72, 0)");
+        ctx.fillStyle = stain;
+        ctx.beginPath();
+        ctx.ellipse(x, y, rx, ry, rand() * Math.PI, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
+
+      ctx.save();
+      ctx.globalAlpha = 0.15 * level;
+      ctx.strokeStyle = "rgb(96,88,72)";
+      ctx.lineWidth = Math.max(1, Math.min(w, h) / 350);
+      const foldCount = sceneMode === "folded_dirty" ? 4 : 2;
+      for (let i = 0; i < foldCount; i++) {
+        const x = w * (0.18 + rand() * 0.64);
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.bezierCurveTo(x + rint(-18, 18), h * 0.28, x + rint(-24, 24), h * 0.65, x + rint(-12, 12), h);
+        ctx.stroke();
+        ctx.globalAlpha = 0.055 * level;
+        ctx.lineWidth *= 4;
+        ctx.stroke();
+        ctx.globalAlpha = 0.15 * level;
+        ctx.lineWidth = Math.max(1, Math.min(w, h) / 350);
+      }
+      ctx.restore();
+
+      ctx.save();
+      ctx.globalCompositeOperation = "multiply";
+      const edge = Math.max(18, Math.min(w, h) * 0.055);
+      const left = ctx.createLinearGradient(0, 0, edge, 0);
+      left.addColorStop(0, `rgba(60,52,40,${0.25 * level})`);
+      left.addColorStop(1, "rgba(60,52,40,0)");
+      ctx.fillStyle = left;
+      ctx.fillRect(0, 0, edge, h);
+      const right = ctx.createLinearGradient(w, 0, w - edge, 0);
+      right.addColorStop(0, `rgba(60,52,40,${0.18 * level})`);
+      right.addColorStop(1, "rgba(60,52,40,0)");
+      ctx.fillStyle = right;
+      ctx.fillRect(w - edge, 0, edge, h);
+      const top = ctx.createLinearGradient(0, 0, 0, edge);
+      top.addColorStop(0, `rgba(60,52,40,${0.16 * level})`);
+      top.addColorStop(1, "rgba(60,52,40,0)");
+      ctx.fillStyle = top;
+      ctx.fillRect(0, 0, w, edge);
+      ctx.restore();
+
+      if (sceneMode === "folded_dirty" || strength === "heavy") {
+        ctx.save();
+        ctx.globalCompositeOperation = "multiply";
+        ctx.globalAlpha = 0.18 * level;
+        ctx.fillStyle = "rgb(92,82,68)";
+        for (let i = 0; i < Math.ceil(3 * level); i++) {
+          const x = rint(w * 0.12, w * 0.82);
+          const y = rint(h * 0.14, h * 0.78);
+          ctx.beginPath();
+          ctx.moveTo(x, y);
+          ctx.quadraticCurveTo(x + rint(20, 70), y + rint(-8, 8), x + rint(45, 120), y + rint(6, 24));
+          ctx.quadraticCurveTo(x + rint(28, 65), y + rint(18, 42), x + rint(-6, 10), y + rint(10, 30));
+          ctx.closePath();
+          ctx.fill();
+        }
+        ctx.restore();
+      }
+    }
+
+    function drawDeskBackground(ctx, w, h, sceneMode) {
+      const base = ctx.createLinearGradient(0, 0, w, h);
+      if (sceneMode === "old_scan") {
+        base.addColorStop(0, "#e8e3d8");
+        base.addColorStop(1, "#cfc8bc");
+      } else if (sceneMode === "folded_dirty") {
+        base.addColorStop(0, "#d7d2c8");
+        base.addColorStop(0.55, "#5b5750");
+        base.addColorStop(1, "#252525");
+      } else {
+        base.addColorStop(0, "#c9c1ad");
+        base.addColorStop(0.55, "#8a7b66");
+        base.addColorStop(1, "#2d302d");
+      }
+      ctx.fillStyle = base;
+      ctx.fillRect(0, 0, w, h);
+      ctx.save();
+      ctx.globalAlpha = 0.18;
+      for (let i = 0; i < 900; i++) {
+        const g = rint(30, 210);
+        ctx.fillStyle = `rgb(${g},${g},${g})`;
+        ctx.fillRect(rand() * w, rand() * h, 1, 1);
+      }
+      ctx.restore();
+      if (sceneMode !== "old_scan") {
+        ctx.save();
+        ctx.globalAlpha = 0.26;
+        ctx.fillStyle = sceneMode === "folded_dirty" ? "#111" : "#f4f0e7";
+        ctx.fillRect(-w * 0.08, h * (0.70 + rand() * 0.08), w * 1.2, h * 0.055);
+        ctx.restore();
+      }
+    }
+
+    function addPhotoArtifacts(canvas, strength) {
+      const ctx = canvas.getContext("2d");
+      const w = canvas.width;
+      const h = canvas.height;
+      const level = { light: 0.5, medium: 1, heavy: 1.35 }[strength] || 1;
+
+      ctx.save();
+      const glare = ctx.createRadialGradient(w * (0.68 + rand() * 0.16), h * (0.08 + rand() * 0.16), 4, w * 0.74, h * 0.16, Math.max(w, h) * 0.42);
+      glare.addColorStop(0, `rgba(255,255,245,${0.15 * level})`);
+      glare.addColorStop(1, "rgba(255,255,245,0)");
+      ctx.fillStyle = glare;
+      ctx.fillRect(0, 0, w, h);
+
+      const vignette = ctx.createRadialGradient(w * 0.5, h * 0.45, Math.min(w, h) * 0.25, w * 0.5, h * 0.5, Math.max(w, h) * 0.72);
+      vignette.addColorStop(0, "rgba(0,0,0,0)");
+      vignette.addColorStop(1, `rgba(0,0,0,${0.20 * level})`);
+      ctx.fillStyle = vignette;
+      ctx.fillRect(0, 0, w, h);
+      ctx.restore();
+
+      if (strength !== "light") {
+        const temp = document.createElement("canvas");
+        temp.width = w;
+        temp.height = h;
+        temp.getContext("2d").drawImage(canvas, 0, 0);
+        ctx.save();
+        ctx.filter = `blur(${strength === "heavy" ? 0.55 : 0.32}px)`;
+        ctx.globalAlpha = strength === "heavy" ? 0.54 : 0.34;
+        ctx.drawImage(temp, 0, 0);
+        ctx.restore();
+      }
+    }
+
+    function makeRealSceneCanvas(source, sceneMode, strength) {
+      if (sceneMode === "handwriting") return source;
+      drawPaperAging(source, strength, sceneMode);
+
+      const margin = sceneMode === "old_scan" ? 0.06 : 0.18;
+      const out = document.createElement("canvas");
+      out.width = Math.round(source.width * (1 + margin * 2));
+      out.height = Math.round(source.height * (1 + margin * 2.1));
+      const ctx = out.getContext("2d");
+      drawDeskBackground(ctx, out.width, out.height, sceneMode);
+
+      const angleMap = { old_scan: 0.018, phone_desk: 0.085, folded_dirty: -0.065 };
+      const angle = angleMap[sceneMode] + (rand() - 0.5) * 0.045;
+      const scale = sceneMode === "old_scan" ? 0.96 : 0.86 + rand() * 0.06;
+      const dx = out.width * (0.5 + (rand() - 0.5) * 0.04);
+      const dy = out.height * (0.5 + (rand() - 0.5) * 0.06);
+      const skewX = sceneMode === "old_scan" ? (rand() - 0.5) * 0.025 : (rand() - 0.5) * 0.09;
+
+      ctx.save();
+      ctx.translate(dx + rint(-6, 6), dy + rint(4, 20));
+      ctx.rotate(angle);
+      ctx.transform(1, 0, skewX, 1, 0, 0);
+      ctx.scale(scale, scale * (sceneMode === "phone_desk" ? 0.96 : 1));
+      ctx.shadowColor = "rgba(0,0,0,.42)";
+      ctx.shadowBlur = sceneMode === "old_scan" ? 10 : 28;
+      ctx.shadowOffsetX = rint(-8, 18);
+      ctx.shadowOffsetY = rint(12, 30);
+      ctx.drawImage(source, -source.width / 2, -source.height / 2);
+      ctx.restore();
+
+      addPhotoArtifacts(out, strength);
+      return out;
+    }
+
+    async function processOne(file, density, mime, region, sceneMode, strength) {
       const img = await readImage(file);
       const canvas = document.createElement("canvas");
       canvas.width = img.naturalWidth;
@@ -466,17 +687,18 @@
       const ctx = canvas.getContext("2d");
       ctx.drawImage(img, 0, 0);
       addHandwriting(canvas, density, region);
-      const blob = await new Promise(resolve => canvas.toBlob(resolve, mime, 0.94));
+      const finalCanvas = makeRealSceneCanvas(canvas, sceneMode, strength);
+      const blob = await new Promise(resolve => finalCanvas.toBlob(resolve, mime, 0.92));
       URL.revokeObjectURL(img.src);
-      return { file, blob, url: URL.createObjectURL(blob), width: canvas.width, height: canvas.height };
+      return { file, blob, url: URL.createObjectURL(blob), width: finalCanvas.width, height: finalCanvas.height };
     }
 
-    function safeOutputName(file, mime, variant, totalVariants) {
+    function safeOutputName(file, mime, variant, totalVariants, sceneMode) {
       const ext = mime === "image/jpeg" ? "jpg" : "png";
       const base = file.webkitRelativePath || file.name;
       const noExt = base.replace(/\.[^.\\/]+$/, "");
       const suffix = totalVariants > 1 ? `_v${String(variant).padStart(2, "0")}` : "";
-      return `${noExt}_handwriting_only${suffix}.${ext}`.replace(/\\/g, "/");
+      return `${noExt}_${sceneMode}${suffix}.${ext}`.replace(/\\/g, "/");
     }
 
     async function processAll() {
@@ -487,6 +709,8 @@
       const density = document.querySelector("input[name='density']:checked").value;
       const mime = $("format").value;
       const region = $("region").value;
+      const sceneMode = $("sceneMode").value;
+      const strength = $("strength").value;
       const variants = Math.max(1, Math.min(5, Number($("variants").value) || 1));
       setSeed($("seed").value || Date.now());
       outputs = [];
@@ -495,16 +719,18 @@
       $("downloadBtn").disabled = true;
       $("zipState").textContent = "生成中";
       $("progressBar").style.width = "0%";
-      $("log").textContent = `开始处理 ${files.length} 张图片，共 ${files.length * variants} 个输出，密度：${density}，覆盖区域：${region}。`;
+      $("log").textContent = `开始处理 ${files.length} 张图片，共 ${files.length * variants} 个输出，场景：${sceneMode}，强度：${strength}，密度：${density}，覆盖区域：${region}。`;
       $("processBtn").disabled = true;
       try {
         const total = files.length * variants;
         for (let i = 0; i < files.length; i++) {
           for (let variant = 1; variant <= variants; variant++) {
-            const output = await processOne(files[i], density, mime, region);
-            output.name = safeOutputName(files[i], mime, variant, variants);
+            const output = await processOne(files[i], density, mime, region, sceneMode, strength);
+            output.name = safeOutputName(files[i], mime, variant, variants, sceneMode);
             output.sourceName = files[i].name;
             output.sourcePath = files[i].webkitRelativePath || files[i].name;
+            output.sceneMode = sceneMode;
+            output.strength = strength;
             output.density = density;
             output.region = region;
             output.variant = variant;
@@ -540,10 +766,12 @@
     }
 
     function createManifestBlob(entries) {
-      const header = ["source", "output", "density", "region", "variant", "width", "height"];
+      const header = ["source", "output", "scene_mode", "strength", "density", "region", "variant", "width", "height"];
       const rows = entries.map(entry => [
         entry.sourcePath,
         entry.name,
+        entry.sceneMode,
+        entry.strength,
         entry.density,
         entry.region,
         entry.variant,
