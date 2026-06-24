@@ -1,6 +1,8 @@
 import express, { type NextFunction, type Request, type Response } from "express";
 import cors from "cors";
 import dotenv from "dotenv";
+import fs from "node:fs";
+import path from "node:path";
 import authRoutes from "./routes/auth.js";
 import modelCropRoutes from "./routes/modelCrop.js";
 import platformRoutes from "./routes/platform.js";
@@ -24,7 +26,19 @@ app.use("/api/health", (_req: Request, res: Response): void => {
   });
 });
 
-app.use((_req: Request, res: Response) => {
+const distDir = path.resolve(process.cwd(), "dist");
+if (fs.existsSync(distDir)) {
+  app.use(express.static(distDir));
+  app.get("*", (req: Request, res: Response, next: NextFunction) => {
+    if (req.path.startsWith("/api/")) {
+      next();
+      return;
+    }
+    res.sendFile(path.join(distDir, "index.html"));
+  });
+}
+
+app.use("/api/*", (_req: Request, res: Response) => {
   res.status(404).json({
     success: false,
     error: "API not found",

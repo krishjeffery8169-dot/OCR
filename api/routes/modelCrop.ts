@@ -9,7 +9,8 @@ import os from "node:os";
 
 const execFileAsync = promisify(execFile);
 const router = Router();
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 80 * 1024 * 1024 } });
+const uploadLimitMb = Number(process.env.MODEL_CROP_UPLOAD_LIMIT_MB || 80);
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: uploadLimitMb * 1024 * 1024 } });
 
 type ModelProvider = "openai-compatible" | "disabled";
 
@@ -39,7 +40,7 @@ type ModelTask = {
   results: QuestionResult[];
 };
 
-const runtimeRoot = path.join(process.cwd(), ".runtime", "model-crop");
+const runtimeRoot = process.env.MODEL_CROP_RUNTIME_ROOT || path.join(process.cwd(), ".runtime", "model-crop");
 const tasks = new Map<string, ModelTask>();
 
 function pushLog(task: ModelTask, message: string) {
@@ -54,10 +55,12 @@ function safeSegment(value: string) {
 function getDesktopScriptPath() {
   const desktop = path.join(os.homedir(), "Desktop");
   const candidates = [
+    process.env.CROP_SCRIPT_PATH,
+    path.join(process.cwd(), "scripts", "docx_wordml_crop_generic.ps1"),
     path.join(desktop, "截取工具", "scripts", "docx_wordml_crop_generic.ps1"),
     path.join(desktop, "截取工具_可发送版", "scripts", "crop.ps1"),
     path.join(process.cwd(), "docx_wordml_crop_physics.ps1"),
-  ];
+  ].filter(Boolean) as string[];
   return candidates;
 }
 
@@ -271,7 +274,8 @@ async function runTask(task: ModelTask, input: {
     };
     await fs.writeFile(configPath, JSON.stringify(config, null, 2), "utf8");
 
-    const { stdout, stderr } = await execFileAsync("powershell.exe", [
+    const powershellExe = process.env.POWERSHELL_EXE || "powershell.exe";
+    const { stdout, stderr } = await execFileAsync(powershellExe, [
       "-NoProfile",
       "-ExecutionPolicy",
       "Bypass",
