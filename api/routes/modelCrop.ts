@@ -161,17 +161,22 @@ async function callModel(params: {
       ]
     : prompt;
 
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${params.apiKey}`,
+  };
+  if (params.baseUrl.includes("openrouter.ai")) {
+    headers["HTTP-Referer"] = "http://localhost:3001/model-crop";
+    headers["X-Title"] = "Model Crop Tool";
+  }
+
   const response = await fetch(`${params.baseUrl.replace(/\/$/, "")}/chat/completions`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${params.apiKey}`,
-    },
+    headers,
     body: JSON.stringify({
       model: params.model,
       temperature: 0,
       messages: [{ role: "user", content }],
-      response_format: { type: "json_object" },
     }),
   });
 
@@ -181,7 +186,8 @@ async function callModel(params: {
 
   const payload = (await response.json()) as { choices?: Array<{ message?: { content?: string } }> };
   const raw = payload.choices?.[0]?.message?.content ?? "";
-  const parsed = JSON.parse(raw) as Partial<Pick<QuestionResult, "qtype" | "dimension" | "confidence" | "doubtful" | "reason">>;
+  const jsonText = raw.match(/```json\s*([\s\S]*?)```/i)?.[1] ?? raw.match(/\{[\s\S]*\}/)?.[0] ?? raw;
+  const parsed = JSON.parse(jsonText) as Partial<Pick<QuestionResult, "qtype" | "dimension" | "confidence" | "doubtful" | "reason">>;
   const dimension = params.candidates.includes(parsed.dimension ?? "") ? parsed.dimension ?? "待确认" : "待确认";
   const confidence = typeof parsed.confidence === "number" ? Math.max(0, Math.min(1, parsed.confidence)) : 0;
   return {

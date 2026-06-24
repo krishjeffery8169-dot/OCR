@@ -110,10 +110,10 @@ export default function ModelCropPage() {
   const [subject, setSubject] = useState("数学");
   const [dimensionText, setDimensionText] = useState(defaultDimensionText);
   const [onlyImageQuestions, setOnlyImageQuestions] = useState(true);
-  const [provider, setProvider] = useState<"openai-compatible" | "disabled">("disabled");
-  const [baseUrl, setBaseUrl] = useState("");
+  const [provider, setProvider] = useState<"openai-compatible" | "disabled">("openai-compatible");
+  const [baseUrl, setBaseUrl] = useState("https://openrouter.ai/api/v1");
   const [apiKey, setApiKey] = useState("");
-  const [model, setModel] = useState("");
+  const [model, setModel] = useState("google/gemini-3.1-flash-image");
   const [useVision, setUseVision] = useState(true);
   const [task, setTask] = useState<ModelCropTask | null>(null);
   const [loading, setLoading] = useState(false);
@@ -250,7 +250,7 @@ export default function ModelCropPage() {
             <Sparkles className="h-5 w-5 text-emerald-200" />
             <div>
               <h3 className="text-base font-semibold">模型配置</h3>
-              <p className="text-xs text-zinc-500">不填写也能截题，但分类会进入待确认。</p>
+              <p className="text-xs text-zinc-500">已预置 OpenRouter，只需要填写 API Key。</p>
             </div>
           </div>
 
@@ -264,13 +264,13 @@ export default function ModelCropPage() {
             </div>
             <div className="space-y-2">
               <FieldLabel>模型名</FieldLabel>
-              <input value={model} onChange={(event) => setModel(event.target.value)} placeholder="例如 gpt-4o / doubao-vision" className="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white outline-none focus:border-cyan-300/50" />
+              <input value={model} onChange={(event) => setModel(event.target.value)} placeholder="google/gemini-3.1-flash-image" className="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white outline-none focus:border-cyan-300/50" />
             </div>
           </div>
 
           <div className="space-y-2">
             <FieldLabel>接口地址</FieldLabel>
-            <input value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} placeholder="https://.../v1" className="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white outline-none focus:border-cyan-300/50" />
+            <input value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} placeholder="https://openrouter.ai/api/v1" className="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white outline-none focus:border-cyan-300/50" />
           </div>
 
           <div className="space-y-2">
