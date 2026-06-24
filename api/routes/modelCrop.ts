@@ -77,6 +77,28 @@ async function findScriptPath() {
   throw new Error("未找到截题脚本，请确认桌面截取工具存在。");
 }
 
+async function normalizePowerShellScriptBom(scriptPath: string) {
+  const utf8Bom = Buffer.from([0xef, 0xbb, 0xbf]);
+  const bytes = await fs.readFile(scriptPath);
+  let offset = 0;
+  let bomCount = 0;
+
+  while (
+    bytes.length >= offset + utf8Bom.length &&
+    bytes[offset] === utf8Bom[0] &&
+    bytes[offset + 1] === utf8Bom[1] &&
+    bytes[offset + 2] === utf8Bom[2]
+  ) {
+    bomCount += 1;
+    offset += utf8Bom.length;
+  }
+
+  if (bomCount <= 1) return "";
+
+  await fs.writeFile(scriptPath, Buffer.concat([utf8Bom, bytes.subarray(offset)]));
+  return "已修复截题脚本开头重复 UTF-8 BOM。";
+}
+
 function parseDimensionCandidates(text: string) {
   const candidates = new Set<string>();
   for (const rawLine of text.split(/\r?\n/)) {
@@ -287,6 +309,8 @@ async function runTask(task: ModelTask, input: {
     pushLog(task, "源文件已保存，开始调用截题脚本。");
 
     const scriptPath = await findScriptPath();
+    const scriptFixMessage = await normalizePowerShellScriptBom(scriptPath);
+    if (scriptFixMessage) pushLog(task, scriptFixMessage);
     const configPath = path.join(task.outputDir, "task.config.json");
     const candidates = parseDimensionCandidates(input.dimensionText);
     const config = {
