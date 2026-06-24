@@ -137,7 +137,8 @@ async function callModel(params: {
   dimensionText: string;
   candidates: string[];
 }) {
-  if (params.provider !== "openai-compatible" || !params.baseUrl || !params.apiKey || !params.model) {
+  const apiKey = params.apiKey || process.env.OPENROUTER_API_KEY || process.env.MODEL_CROP_API_KEY;
+  if (params.provider !== "openai-compatible" || !params.baseUrl || !apiKey || !params.model) {
     return null;
   }
 
@@ -163,7 +164,7 @@ async function callModel(params: {
 
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
-    Authorization: `Bearer ${params.apiKey}`,
+    Authorization: `Bearer ${apiKey}`,
   };
   if (params.baseUrl.includes("openrouter.ai")) {
     headers["HTTP-Referer"] = "http://localhost:3001/model-crop";

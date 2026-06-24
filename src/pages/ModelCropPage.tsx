@@ -113,7 +113,7 @@ export default function ModelCropPage() {
   const [provider, setProvider] = useState<"openai-compatible" | "disabled">("openai-compatible");
   const [baseUrl, setBaseUrl] = useState("https://openrouter.ai/api/v1");
   const [apiKey, setApiKey] = useState("");
-  const [model, setModel] = useState("google/gemini-3.1-flash-image");
+  const [model, setModel] = useState("qwen/qwen3.7-plus");
   const [useVision, setUseVision] = useState(true);
   const [task, setTask] = useState<ModelCropTask | null>(null);
   const [loading, setLoading] = useState(false);
@@ -250,7 +250,7 @@ export default function ModelCropPage() {
             <Sparkles className="h-5 w-5 text-emerald-200" />
             <div>
               <h3 className="text-base font-semibold">模型配置</h3>
-              <p className="text-xs text-zinc-500">已预置 OpenRouter，只需要填写 API Key。</p>
+              <p className="text-xs text-zinc-500">已预置 OpenRouter，默认使用当前 Key 已测通的视觉模型。</p>
             </div>
           </div>
 
@@ -264,7 +264,7 @@ export default function ModelCropPage() {
             </div>
             <div className="space-y-2">
               <FieldLabel>模型名</FieldLabel>
-              <input value={model} onChange={(event) => setModel(event.target.value)} placeholder="google/gemini-3.1-flash-image" className="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white outline-none focus:border-cyan-300/50" />
+              <input value={model} onChange={(event) => setModel(event.target.value)} placeholder="qwen/qwen3.7-plus" className="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white outline-none focus:border-cyan-300/50" />
             </div>
           </div>
 
@@ -275,7 +275,7 @@ export default function ModelCropPage() {
 
           <div className="space-y-2">
             <FieldLabel>API Key</FieldLabel>
-            <input value={apiKey} onChange={(event) => setApiKey(event.target.value)} type="password" placeholder="只用于本次请求，不写入导出包" className="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white outline-none focus:border-cyan-300/50" />
+            <input value={apiKey} onChange={(event) => setApiKey(event.target.value)} type="password" placeholder="服务器已配置可不填；手填时只用于本次请求" className="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white outline-none focus:border-cyan-300/50" />
           </div>
 
           <label className="flex items-center gap-3 rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-zinc-200">
