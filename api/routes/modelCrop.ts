@@ -299,7 +299,7 @@ async function runTask(task: ModelTask, input: {
       autoDetectImageQuestions: true,
       onlyImageQuestions: input.onlyImageQuestions,
       groupSharedMaterial: false,
-      useNativeWordCrop: true,
+      useNativeWordCrop: false,
       defaultType: `${input.subject}图像题`,
       defaultQtype: "选择_填空_解答",
       defaultKnowledgePoint: candidates.join("|") || "待确认",

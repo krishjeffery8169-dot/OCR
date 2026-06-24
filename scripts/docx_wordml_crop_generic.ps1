@@ -196,10 +196,33 @@ try {
 '@
   [System.IO.File]::WriteAllText($childScript, $script, [System.Text.UTF8Encoding]::new($true))
   try {
-    $childOutput = & $PowershellExe -STA -NoProfile -ExecutionPolicy Bypass -File $childScript -SourceDocx $SourceDocx -StartPara $startPara -EndPara $endPara -HtmlPath $HtmlPath 2>&1
-    if($LASTEXITCODE -ne 0 -or !(Test-Path $HtmlPath)){
-      throw "Word 保留格式导出失败：$childOutput"
+    $lastError = ""
+    for($attempt=1; $attempt -le 3; $attempt++){
+      Remove-Item $HtmlPath -Force -ErrorAction SilentlyContinue
+      $stdoutPath = Join-Path $env:TEMP ("word_range_html_out_"+[guid]::NewGuid().ToString("N")+".txt")
+      $stderrPath = Join-Path $env:TEMP ("word_range_html_err_"+[guid]::NewGuid().ToString("N")+".txt")
+      $args = @("-STA","-NoProfile","-ExecutionPolicy","Bypass","-File",$childScript,"-SourceDocx",$SourceDocx,"-StartPara",$startPara,"-EndPara",$endPara,"-HtmlPath",$HtmlPath)
+      $beforeWordIds = @(Get-Process WINWORD -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Id)
+      $p = Start-Process -FilePath $PowershellExe -ArgumentList $args -PassThru -WindowStyle Hidden -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath
+      if(-not $p.WaitForExit(15000)){
+        Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+        Get-Process WINWORD -ErrorAction SilentlyContinue | Where-Object { $beforeWordIds -notcontains $_.Id } | Stop-Process -Force -ErrorAction SilentlyContinue
+        $lastError = "Word 保留格式导出超时"
+      } else {
+        $childOutput = ""
+        if(Test-Path $stdoutPath){ $childOutput += (Get-Content -LiteralPath $stdoutPath -Raw -ErrorAction SilentlyContinue) }
+        if(Test-Path $stderrPath){ $childOutput += (Get-Content -LiteralPath $stderrPath -Raw -ErrorAction SilentlyContinue) }
+        if($p.ExitCode -eq 0 -and (Test-Path $HtmlPath)){
+          Remove-Item $stdoutPath,$stderrPath -Force -ErrorAction SilentlyContinue
+          return
+        }
+        $lastError = [string]$childOutput
+        Get-Process WINWORD -ErrorAction SilentlyContinue | Where-Object { $beforeWordIds -notcontains $_.Id } | Stop-Process -Force -ErrorAction SilentlyContinue
+      }
+      Remove-Item $stdoutPath,$stderrPath -Force -ErrorAction SilentlyContinue
+      Start-Sleep -Milliseconds (700 * $attempt)
     }
+    throw "Word 保留格式导出失败：$lastError"
   } finally {
     Remove-Item $childScript -Force -ErrorAction SilentlyContinue
   }
@@ -284,6 +307,55 @@ function Get-ParagraphPlainText([string]$pXml) {
     }
   }
   return (($parts -join '') -replace '[\u200b\u200c\u200d]', '').Trim()
+}
+
+function Get-MediaHtmlFile([string]$rid, $relMap, [string]$mediaDir) {
+  if([string]::IsNullOrWhiteSpace($rid) -or -not $relMap.ContainsKey($rid)){ return "" }
+  $file = Split-Path $relMap[$rid] -Leaf
+  $sourcePath = Join-Path $mediaDir $file
+  if(!(Test-Path -LiteralPath $sourcePath)){ return "" }
+  if($file -match '\.(png|jpg|jpeg|gif)$'){ return $file }
+  if($file -match '\.(wmf|emf)$'){
+    $pngFile = ([System.IO.Path]::GetFileNameWithoutExtension($file) + ".png")
+    $pngPath = Join-Path $mediaDir $pngFile
+    if(!(Test-Path -LiteralPath $pngPath)){
+      $img = [System.Drawing.Image]::FromFile($sourcePath)
+      try {
+        $img.Save($pngPath, [System.Drawing.Imaging.ImageFormat]::Png)
+      } finally {
+        $img.Dispose()
+      }
+    }
+    return $pngFile
+  }
+  return ""
+}
+
+function Get-ParagraphHtml([string]$pXml, $relMap, [string]$mediaDir) {
+  $parts = New-Object System.Collections.Generic.List[string]
+  $pattern = '<w:t(?:\s[^>]*)?>([\s\S]*?)</w:t>|<m:t(?:\s[^>]*)?>([\s\S]*?)</m:t>|<w:tab\s*/>|<w:br\s*/>|<m:chr\b[^>]*\bm:val="([^"]+)"|<v:imagedata\b[^>]*\br:id="([^"]+)"|<a:blip\b[^>]*\br:embed="([^"]+)"'
+  foreach($m in [regex]::Matches($pXml, $pattern)){
+    if($m.Groups[1].Success){
+      $parts.Add((HtmlEncode ([System.Net.WebUtility]::HtmlDecode($m.Groups[1].Value))))
+    } elseif($m.Groups[2].Success){
+      $parts.Add((HtmlEncode ([System.Net.WebUtility]::HtmlDecode($m.Groups[2].Value))))
+    } elseif($m.Value -like '<w:tab*') {
+      $parts.Add(" ")
+    } elseif($m.Value -like '<w:br*') {
+      $parts.Add("<br>")
+    } elseif($m.Groups[3].Success) {
+      $parts.Add((HtmlEncode ([System.Net.WebUtility]::HtmlDecode($m.Groups[3].Value))))
+    } else {
+      $rid = ""
+      if($m.Groups[4].Success){ $rid = $m.Groups[4].Value }
+      if($m.Groups[5].Success){ $rid = $m.Groups[5].Value }
+      $htmlFile = Get-MediaHtmlFile $rid $relMap $mediaDir
+      if(-not [string]::IsNullOrWhiteSpace($htmlFile)){
+        $parts.Add("<img class='inline-media' src='../media/$htmlFile'>")
+      }
+    }
+  }
+  return ($parts -join '')
 }
 
 function Select-QtypeForQuestion([string]$qtype, [string]$questionText) {
@@ -492,6 +564,7 @@ if ($null -ne $config.screenshotTimeoutMs) {
   $screenshotTimeoutMs = [int]$config.screenshotTimeoutMs
 }
 $useNativeWordCrop = ($config.useNativeWordCrop -eq $true)
+$useWordRangePicture = ($config.useWordRangePicture -eq $true)
 $powershellExe = "powershell.exe"
 if ($null -ne $config.powershellExe -and -not [string]::IsNullOrWhiteSpace([string]$config.powershellExe)) {
   $powershellExe = [string]$config.powershellExe
@@ -525,7 +598,7 @@ foreach($pm in [regex]::Matches($docXml,'<w:p[\s\S]*?</w:p>')){
     $rid=$im.Groups[1].Value
     if($relMap.ContainsKey($rid)){ $imgIds.Add($rid) }
   }
-  $paragraphs.Add([pscustomobject]@{Index=$paraIndex; Text=$text; ImageIds=$imgIds})
+  $paragraphs.Add([pscustomobject]@{Index=$paraIndex; Text=$text; Xml=$pXml; ImageIds=$imgIds})
   $paraIndex++
 }
 
@@ -709,12 +782,19 @@ foreach($it in $itemsToRun){
     $body=New-Object System.Text.StringBuilder
     foreach($p in $slice){
       if(Is-AnswerOrAnalysisLine ([string]$p.Text)){ break }
-      if(-not [string]::IsNullOrWhiteSpace($p.Text)){
-        [void]$body.AppendLine("<p>"+(HtmlEncode $p.Text)+"</p>")
+      $paragraphHtml = Get-ParagraphHtml ([string]$p.Xml) $relMap $mediaDir
+      if(-not [string]::IsNullOrWhiteSpace($paragraphHtml)){
+        $trimmedParagraphHtml = $paragraphHtml.Trim()
+        if($trimmedParagraphHtml -match "^<img class='inline-media' src='([^']+)'>$"){
+          [void]$body.AppendLine("<div class='imgbox'><img src='$($Matches[1])'></div>")
+        } else {
+          [void]$body.AppendLine("<p>$paragraphHtml</p>")
+        }
       }
       foreach($rid in $p.ImageIds){
-        $file=Split-Path $relMap[$rid] -Leaf
-        if($file -match '\.(png|jpg|jpeg)$'){
+        $file=Get-MediaHtmlFile $rid $relMap $mediaDir
+        if(-not [string]::IsNullOrWhiteSpace($file) -and $paragraphHtml -match [regex]::Escape("../media/$file")){ continue }
+        if(-not [string]::IsNullOrWhiteSpace($file)){
           [void]$body.AppendLine("<div class='imgbox'><img src='../media/$file'></div>")
         }
       }
@@ -733,6 +813,7 @@ foreach($it in $itemsToRun){
 body{margin:0;background:#fff;font-family:"Microsoft YaHei",SimSun,Arial,sans-serif}
 .page{width:980px;padding:34px 44px;color:#111;font-size:22px;line-height:1.72}
 p{margin:8px 0 12px}.imgbox{margin:12px 0 18px;text-align:center}img{max-width:92%;height:auto}
+.inline-media{display:inline-block;max-height:1.35em;max-width:12em;vertical-align:-0.25em;margin:0 2px}.imgbox .inline-media,.imgbox img{max-height:none;max-width:92%}
 </style></head><body><div class="page">
 $($body.ToString())
 </div></body></html>
@@ -742,23 +823,23 @@ $($body.ToString())
     $nativeOk = $false
     if($useNativeWordCrop){
       try {
-        Save-WordRangeImage ([string]$config.sourceDocx) $paragraphs $start $end $imgPath $powershellExe
-        $nativeOk = $true
-        $captureMode = "word-range"
-      } catch {
-        Write-Host "  Word 原版式截图失败，尝试 Word 保留格式导出：$($_.Exception.Message)"
-      }
-    }
-
-    if(-not $nativeOk -and $useNativeWordCrop){
-      try {
         Export-WordRangeHtml ([string]$config.sourceDocx) $paragraphs $start $end $wordHtmlPath $powershellExe
         $profile=Join-Path $subjectOutRoot ("edge_profile_word_"+(FormatQid $qid)+"_"+[guid]::NewGuid().ToString("N"))
         Capture-HtmlImage $edge $wordHtmlPath $rawPath $imgPath $profile $screenshotTimeoutMs
         $nativeOk = $true
         $captureMode = "word-html"
       } catch {
-        Write-Host "  Word 保留格式导出失败，回退普通 HTML 截图：$($_.Exception.Message)"
+        Write-Host "  Word 保留格式导出失败：$($_.Exception.Message)"
+      }
+    }
+
+    if(-not $nativeOk -and $useNativeWordCrop -and $useWordRangePicture){
+      try {
+        Save-WordRangeImage ([string]$config.sourceDocx) $paragraphs $start $end $imgPath $powershellExe
+        $nativeOk = $true
+        $captureMode = "word-range"
+      } catch {
+        Write-Host "  Word 原版式截图失败，回退普通 HTML 截图：$($_.Exception.Message)"
       }
     }
 
