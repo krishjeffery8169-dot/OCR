@@ -146,9 +146,79 @@
       background: rgba(255,255,255,.55);
       padding: 8px;
       min-width: 0;
+      cursor: zoom-in;
     }
+    .thumb:hover { border-color: var(--green); box-shadow: 3px 3px 0 rgba(31,34,31,.16); }
     .thumb img { width: 100%; height: 120px; object-fit: contain; background: #eee8dc; display: block; }
     .thumb p { margin: 7px 0 0; color: var(--muted); font: 12px/1.45 Consolas, "Microsoft YaHei", monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .lightbox {
+      position: fixed;
+      inset: 0;
+      z-index: 100;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 28px;
+      background: rgba(15,18,15,.82);
+    }
+    .lightbox.open { display: flex; }
+    .lightbox-card {
+      width: min(1180px, 96vw);
+      max-height: 94vh;
+      border: 2px solid var(--line);
+      background: #fffaf0;
+      box-shadow: 10px 10px 0 rgba(0,0,0,.28);
+      display: grid;
+      grid-template-rows: auto 1fr;
+    }
+    .lightbox-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 12px 14px;
+      border-bottom: 1px solid rgba(41,47,40,.22);
+    }
+    .lightbox-title {
+      min-width: 0;
+      margin: 0;
+      color: var(--muted);
+      font: 13px/1.45 Consolas, "Microsoft YaHei", monospace;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .lightbox-actions { display: flex; gap: 8px; flex-shrink: 0; }
+    .lightbox-actions a,
+    .lightbox-actions button {
+      border: 1.5px solid var(--line);
+      background: var(--line);
+      color: #fffaf0;
+      padding: 8px 10px;
+      font-weight: 900;
+      text-decoration: none;
+      cursor: pointer;
+    }
+    .lightbox-actions button { font: inherit; }
+    .lightbox-body {
+      max-height: calc(94vh - 62px);
+      overflow: auto;
+      padding: 14px;
+      text-align: center;
+      background:
+        linear-gradient(45deg, rgba(41,47,40,.05) 25%, transparent 25%),
+        linear-gradient(-45deg, rgba(41,47,40,.05) 25%, transparent 25%),
+        linear-gradient(45deg, transparent 75%, rgba(41,47,40,.05) 75%),
+        linear-gradient(-45deg, transparent 75%, rgba(41,47,40,.05) 75%);
+      background-size: 22px 22px;
+      background-position: 0 0, 0 11px, 11px -11px, -11px 0;
+    }
+    .lightbox-body img {
+      max-width: 100%;
+      height: auto;
+      background: #eee8dc;
+      box-shadow: 0 8px 28px rgba(0,0,0,.22);
+    }
     .note {
       margin-top: 20px;
       padding: 15px;
@@ -276,6 +346,20 @@
       </section>
     </section>
   </main>
+  <div class="lightbox" id="lightbox" aria-hidden="true">
+    <div class="lightbox-card" role="dialog" aria-modal="true" aria-labelledby="lightboxTitle">
+      <div class="lightbox-head">
+        <p class="lightbox-title" id="lightboxTitle"></p>
+        <div class="lightbox-actions">
+          <a id="lightboxOpen" href="#" target="_blank" rel="noopener">新标签打开</a>
+          <button id="lightboxClose" type="button">关闭</button>
+        </div>
+      </div>
+      <div class="lightbox-body">
+        <img id="lightboxImg" alt="">
+      </div>
+    </div>
+  </div>
 
   <script>
     const imageTypes = new Set(["image/png", "image/jpeg", "image/webp", "image/bmp"]);
@@ -756,8 +840,35 @@
     function addThumb(output) {
       const item = document.createElement("div");
       item.className = "thumb";
+      item.tabIndex = 0;
+      item.setAttribute("role", "button");
+      item.setAttribute("aria-label", `放大预览 ${output.name}`);
       item.innerHTML = `<img src="${output.url}" alt=""><p title="${output.name}">${output.name}</p>`;
+      item.addEventListener("click", () => openLightbox(output));
+      item.addEventListener("keydown", event => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          openLightbox(output);
+        }
+      });
       $("preview").appendChild(item);
+    }
+
+    function openLightbox(output) {
+      $("lightboxImg").src = output.url;
+      $("lightboxImg").alt = output.name;
+      $("lightboxTitle").textContent = `${output.name}  ·  ${output.width}×${output.height}`;
+      $("lightboxOpen").href = output.url;
+      $("lightbox").classList.add("open");
+      $("lightbox").setAttribute("aria-hidden", "false");
+      $("lightboxClose").focus();
+    }
+
+    function closeLightbox() {
+      $("lightbox").classList.remove("open");
+      $("lightbox").setAttribute("aria-hidden", "true");
+      $("lightboxImg").src = "";
+      $("lightboxOpen").href = "#";
     }
 
     function csvEscape(value) {
@@ -859,6 +970,13 @@
     $("processBtn").addEventListener("click", processAll);
     $("downloadBtn").addEventListener("click", downloadZip);
     $("clearBtn").addEventListener("click", clearAll);
+    $("lightboxClose").addEventListener("click", closeLightbox);
+    $("lightbox").addEventListener("click", event => {
+      if (event.target === $("lightbox")) closeLightbox();
+    });
+    document.addEventListener("keydown", event => {
+      if (event.key === "Escape" && $("lightbox").classList.contains("open")) closeLightbox();
+    });
 
     const dropZone = $("dropZone");
     dropZone.addEventListener("dragover", e => {
