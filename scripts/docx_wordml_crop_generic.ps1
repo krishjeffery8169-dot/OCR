@@ -127,6 +127,23 @@ function Test-AnyPattern([string]$text, [string[]]$patterns) {
   return $false
 }
 
+function Get-ParagraphPlainText([string]$pXml) {
+  $parts = New-Object System.Collections.Generic.List[string]
+  $pattern = '<(?:w|m):t(?:\s[^>]*)?>([\s\S]*?)</(?:w|m):t>|<w:tab\s*/>|<w:br\s*/>|<m:chr\b[^>]*\bm:val="([^"]+)"'
+  foreach($m in [regex]::Matches($pXml, $pattern)){
+    if($m.Groups[1].Success){
+      $parts.Add([System.Net.WebUtility]::HtmlDecode($m.Groups[1].Value))
+    } elseif($m.Value -like '<w:tab*') {
+      $parts.Add(" ")
+    } elseif($m.Value -like '<w:br*') {
+      $parts.Add("`n")
+    } elseif($m.Groups[2].Success) {
+      $parts.Add([System.Net.WebUtility]::HtmlDecode($m.Groups[2].Value))
+    }
+  }
+  return (($parts -join '') -replace '[\u200b\u200c\u200d]', '').Trim()
+}
+
 function Select-QtypeForQuestion([string]$qtype, [string]$questionText) {
   $candidates = Split-DimensionValues $qtype
   if($candidates.Count -le 1){ return $qtype }
@@ -354,8 +371,7 @@ $paragraphs=New-Object System.Collections.Generic.List[object]
 $paraIndex = 0
 foreach($pm in [regex]::Matches($docXml,'<w:p[\s\S]*?</w:p>')){
   $pXml=$pm.Value
-  $texts=[regex]::Matches($pXml,'<w:t(?:\s[^>]*)?>([\s\S]*?)</w:t>') | ForEach-Object { [System.Net.WebUtility]::HtmlDecode($_.Groups[1].Value) }
-  $text=($texts -join '').Trim()
+  $text=Get-ParagraphPlainText $pXml
   $imgIds=New-Object System.Collections.Generic.List[string]
   foreach($im in [regex]::Matches($pXml,'r:embed="([^"]+)"')){
     $rid=$im.Groups[1].Value
@@ -584,6 +600,7 @@ $($body.ToString())
       "题型" = $qtype
       "图片文件名" = $fileName
       "图片路径" = $imgPath
+      "题面文本" = $plainText
       "备注" = $remark
     })
     Write-Host "  OK $fileName"

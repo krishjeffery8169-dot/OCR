@@ -100,8 +100,8 @@ function inferQtype(fileName: string) {
   return "待确认";
 }
 
-function localClassify(fileName: string, dimensionText: string, candidates: string[]) {
-  const haystack = `${fileName}\n${dimensionText}`;
+function localClassify(fileName: string, questionText: string, dimensionText: string, candidates: string[]) {
+  const haystack = `${fileName}\n${questionText}\n${dimensionText}`;
   let best = "待确认";
   let bestScore = 0;
   for (const candidate of candidates) {
@@ -132,6 +132,7 @@ async function callModel(params: {
   useVision: boolean;
   imagePath: string;
   fileName: string;
+  questionText: string;
   stage: string;
   subject: string;
   dimensionText: string;
@@ -150,6 +151,7 @@ async function callModel(params: {
     `学段：${params.stage}`,
     `学科：${params.subject}`,
     `文件名：${params.fileName}`,
+    `题面文字：\n${params.questionText || "未提取到题面文字，请优先看题图判断。"}`,
     `候选维度：${params.candidates.join(" | ") || "未解析到候选维度"}`,
     `维度说明：\n${params.dimensionText}`,
     'JSON Schema：{"qtype":"选择|填空|解答|待确认","dimension":"候选维度或待确认","confidence":0到1,"doubtful":true或false,"reason":"一句话理由"}',
@@ -338,8 +340,9 @@ async function runTask(task: ModelTask, input: {
     for (const fileName of files) {
       const row = manifestRows.find((item) => item["图片文件名"] === fileName);
       const qid = row?.["题号"] || fileName.split("_")[0] || "Q";
+      const questionText = row?.["题面文本"] || "";
       const imagePath = path.join(imageDir, fileName);
-      let classified = localClassify(fileName, input.dimensionText, candidates);
+      let classified = localClassify(fileName, questionText, input.dimensionText, candidates);
       try {
         const modelResult = await callModel({
           provider: input.provider,
@@ -349,6 +352,7 @@ async function runTask(task: ModelTask, input: {
           useVision: input.useVision,
           imagePath,
           fileName,
+          questionText,
           stage: input.stage,
           subject: input.subject,
           dimensionText: input.dimensionText,
@@ -369,7 +373,7 @@ async function runTask(task: ModelTask, input: {
         qid,
         imageName: fileName,
         imageUrl: `/api/model-crop/tasks/${task.taskId}/images/${encodeURIComponent(fileName)}`,
-        text: "",
+        text: questionText,
         stage: input.stage,
         subject: input.subject,
         ...classified,
