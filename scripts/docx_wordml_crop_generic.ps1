@@ -10,6 +10,7 @@
 $ErrorActionPreference = "Stop"
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 Add-Type -AssemblyName System.Drawing
+Add-Type -AssemblyName System.Windows.Forms
 
 function HtmlEncode([string]$s) {
   return [System.Net.WebUtility]::HtmlEncode($s)
@@ -76,6 +77,54 @@ function Trim-WhiteImage([string]$InputPath, [string]$OutputPath) {
   } finally {
     $bmp.Dispose()
   }
+}
+
+function Save-WordRangeImage($wordDoc, $items, [int]$start, [int]$endExclusive, [string]$OutputPath) {
+  if($null -eq $wordDoc){ throw "未启用 Word 原版式截图" }
+  if($start -lt 0 -or $endExclusive -le $start){ throw "Word 原版式截图范围无效" }
+  if($endExclusive -gt $items.Count){ $endExclusive = $items.Count }
+
+  $startPara = [int]$items[$start].Index + 1
+  $endPara = [int]$items[$endExclusive - 1].Index + 1
+  if($startPara -lt 1 -or $endPara -lt $startPara){ throw "Word 段落范围无效" }
+
+  $rangeStart = $wordDoc.Paragraphs.Item($startPara).Range.Start
+  $rangeEnd = $wordDoc.Paragraphs.Item($endPara).Range.End
+  $range = $wordDoc.Range($rangeStart, $rangeEnd)
+  $range.CopyAsPicture()
+  Start-Sleep -Milliseconds 1000
+
+  $data = [System.Windows.Forms.Clipboard]::GetDataObject()
+  $emf = $null
+  if($null -ne $data){
+    $emf = $data.GetData("EnhancedMetafile")
+  }
+
+  $tmp = Join-Path $env:TEMP ("wordrange_"+[guid]::NewGuid().ToString("N")+".png")
+  if($null -ne $emf){
+    $metafile = New-Object System.Drawing.Imaging.Metafile($emf)
+    try {
+      $width = [Math]::Max(1200, [int]($metafile.Width * 2.6))
+      $height = [Math]::Max(900, [int]($metafile.Height * 2.6))
+      $bmp = New-Object System.Drawing.Bitmap $width, $height
+      $g = [System.Drawing.Graphics]::FromImage($bmp)
+      $g.Clear([System.Drawing.Color]::White)
+      $g.DrawImage($metafile, 0, 0, $width, $height)
+      $bmp.Save($tmp, [System.Drawing.Imaging.ImageFormat]::Png)
+      $g.Dispose(); $bmp.Dispose()
+    } finally {
+      $metafile.Dispose()
+      $emf.Dispose()
+    }
+  } else {
+    $img = [System.Windows.Forms.Clipboard]::GetImage()
+    if($null -eq $img){ throw "Word 原版式截图失败：剪贴板未生成图片" }
+    $img.Save($tmp, [System.Drawing.Imaging.ImageFormat]::Png)
+    $img.Dispose()
+  }
+
+  Trim-WhiteImage $tmp $OutputPath
+  Remove-Item $tmp -Force -ErrorAction SilentlyContinue
 }
 
 function Get-ItemTypeForOutput($item) {
@@ -349,6 +398,9 @@ $screenshotTimeoutMs = 45000
 if ($null -ne $config.screenshotTimeoutMs) {
   $screenshotTimeoutMs = [int]$config.screenshotTimeoutMs
 }
+$useNativeWordCrop = ($config.useNativeWordCrop -eq $true)
+$wordApp = $null
+$wordDoc = $null
 
 $zip=[System.IO.Compression.ZipFile]::OpenRead([string]$config.sourceDocx)
 try {
@@ -389,6 +441,22 @@ $edgeCandidates = @(
 $edge = $edgeCandidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
 if ([string]::IsNullOrWhiteSpace($edge)) {
   throw "未找到 Microsoft Edge，无法执行 headless 截图"
+}
+
+if($useNativeWordCrop){
+  try {
+    $wordApp = New-Object -ComObject Word.Application
+    $wordApp.Visible = $false
+    $wordDoc = $wordApp.Documents.Open([string]$config.sourceDocx, $false, $true)
+    Write-Host "已启用 Word 原版式截图"
+  } catch {
+    Write-Host "Word 原版式截图不可用，回退到 HTML 截图：$($_.Exception.Message)"
+    if($null -ne $wordDoc){ $wordDoc.Close($false) }
+    if($null -ne $wordApp){ $wordApp.Quit() }
+    $wordDoc = $null
+    $wordApp = $null
+    $useNativeWordCrop = $false
+  }
 }
 
 $itemsToRun = @()
@@ -574,6 +642,7 @@ foreach($it in $itemsToRun){
     $htmlPath=Join-Path $htmlDir "$base.html"
     $rawPath=Join-Path $subjectOutRoot "$base.raw.png"
     $imgPath=Join-Path $imageDir $fileName
+    $captureMode = "html"
     $html=@"
 <!doctype html><html><head><meta charset="utf-8">
 <style>
@@ -586,21 +655,34 @@ $($body.ToString())
 "@
     [System.IO.File]::WriteAllText($htmlPath,$html,[System.Text.UTF8Encoding]::new($true))
 
-    $profile=Join-Path $subjectOutRoot ("edge_profile_"+(FormatQid $qid)+"_"+[guid]::NewGuid().ToString("N"))
-    New-Item -ItemType Directory -Force -Path $profile | Out-Null
-    $uri=([System.Uri]$htmlPath).AbsoluteUri
-    $args=@("--headless","--disable-gpu","--no-sandbox","--disable-extensions","--hide-scrollbars","--force-device-scale-factor=2","--window-size=1300,6000","--user-data-dir=$profile","--screenshot=$rawPath",$uri)
-    $p=Start-Process -FilePath $edge -ArgumentList $args -PassThru -WindowStyle Hidden
-    if(-not $p.WaitForExit($screenshotTimeoutMs)){
-      Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
-      if(!(Test-Path $rawPath)){ throw "Edge 截图超时且未生成截图" }
+    $nativeOk = $false
+    if($useNativeWordCrop -and $null -ne $wordDoc){
+      try {
+        Save-WordRangeImage $wordDoc $paragraphs $start $end $imgPath
+        $nativeOk = $true
+        $captureMode = "word-range"
+      } catch {
+        Write-Host "  Word 原版式截图失败，回退 HTML 截图：$($_.Exception.Message)"
+      }
     }
-    if(!(Test-Path $rawPath)){ throw "Edge 未生成截图" }
 
-    Trim-WhiteImage $rawPath $imgPath
+    if(-not $nativeOk){
+      $profile=Join-Path $subjectOutRoot ("edge_profile_"+(FormatQid $qid)+"_"+[guid]::NewGuid().ToString("N"))
+      New-Item -ItemType Directory -Force -Path $profile | Out-Null
+      $uri=([System.Uri]$htmlPath).AbsoluteUri
+      $args=@("--headless","--disable-gpu","--no-sandbox","--disable-extensions","--hide-scrollbars","--force-device-scale-factor=2","--window-size=1300,6000","--user-data-dir=$profile","--screenshot=$rawPath",$uri)
+      $p=Start-Process -FilePath $edge -ArgumentList $args -PassThru -WindowStyle Hidden
+      if(-not $p.WaitForExit($screenshotTimeoutMs)){
+        Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+        if(!(Test-Path $rawPath)){ throw "Edge 截图超时且未生成截图" }
+      }
+      if(!(Test-Path $rawPath)){ throw "Edge 未生成截图" }
+
+      Trim-WhiteImage $rawPath $imgPath
+      Remove-Item $rawPath -Force -ErrorAction SilentlyContinue
+      Remove-Item $profile -Recurse -Force -ErrorAction SilentlyContinue
+    }
     [System.IO.File]::Copy($imgPath, (Join-Path $imagesDir $fileName), $true)
-    Remove-Item $rawPath -Force -ErrorAction SilentlyContinue
-    Remove-Item $profile -Recurse -Force -ErrorAction SilentlyContinue
 
     $remark = [string]$it.remark
     if($it.doubtful -and [string]::IsNullOrWhiteSpace($remark)){
@@ -618,6 +700,7 @@ $($body.ToString())
       "图片文件名" = $fileName
       "图片路径" = $imgPath
       "题面文本" = $plainText
+      "截图方式" = $captureMode
       "备注" = $remark
     })
     Write-Host "  OK $fileName"
@@ -635,6 +718,15 @@ $($body.ToString())
     })
     Write-Host "  SKIP Q${qid}: $($_.Exception.Message)"
   }
+}
+
+if($null -ne $wordDoc){
+  $wordDoc.Close($false)
+  $wordDoc = $null
+}
+if($null -ne $wordApp){
+  $wordApp.Quit()
+  $wordApp = $null
 }
 
 $manifest | Export-Csv (Join-Path $subjectOutRoot "manifest_简化维度.csv") -NoTypeInformation -Encoding UTF8

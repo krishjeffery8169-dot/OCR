@@ -26,6 +26,7 @@ type QuestionResult = {
   confidence: number;
   doubtful: boolean;
   reason: string;
+  captureMode?: string;
 };
 
 type ModelTask = {
@@ -245,7 +246,7 @@ function csvCell(value: unknown) {
 }
 
 function buildResultsCsv(results: QuestionResult[]) {
-  const headers = ["题号", "图片名", "学段", "学科", "题型", "匹配维度", "置信度", "待确认", "模型/人工理由", "题面文本"];
+  const headers = ["题号", "图片名", "学段", "学科", "题型", "匹配维度", "置信度", "待确认", "截图方式", "模型/人工理由", "题面文本"];
   const rows = results.map((item) => [
     item.qid,
     item.imageName,
@@ -255,6 +256,7 @@ function buildResultsCsv(results: QuestionResult[]) {
     item.dimension,
     item.confidence,
     item.doubtful ? "是" : "否",
+    item.captureMode || "",
     item.reason,
     item.text,
   ]);
@@ -297,6 +299,7 @@ async function runTask(task: ModelTask, input: {
       autoDetectImageQuestions: true,
       onlyImageQuestions: input.onlyImageQuestions,
       groupSharedMaterial: false,
+      useNativeWordCrop: true,
       defaultType: `${input.subject}图像题`,
       defaultQtype: "选择_填空_解答",
       defaultKnowledgePoint: candidates.join("|") || "待确认",
@@ -346,6 +349,7 @@ async function runTask(task: ModelTask, input: {
       const row = manifestRows.find((item) => item["图片文件名"] === fileName);
       const qid = row?.["题号"] || fileName.split("_")[0] || "Q";
       const questionText = row?.["题面文本"] || "";
+      const captureMode = row?.["截图方式"] || "unknown";
       const imagePath = path.join(imageDir, fileName);
       let classified = localClassify(fileName, questionText, input.dimensionText, candidates);
       try {
@@ -381,6 +385,7 @@ async function runTask(task: ModelTask, input: {
         text: questionText,
         stage: input.stage,
         subject: input.subject,
+        captureMode,
         ...classified,
       });
     }
