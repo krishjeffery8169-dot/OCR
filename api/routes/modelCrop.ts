@@ -42,6 +42,8 @@ type ModelTask = {
 };
 
 const runtimeRoot = process.env.MODEL_CROP_RUNTIME_ROOT || path.join(process.cwd(), ".runtime", "model-crop");
+const cropScriptTimeoutMs = Number(process.env.MODEL_CROP_SCRIPT_TIMEOUT_MS || 120000);
+const modelRequestTimeoutMs = Number(process.env.MODEL_CROP_MODEL_TIMEOUT_MS || 30000);
 const tasks = new Map<string, ModelTask>();
 
 function pushLog(task: ModelTask, message: string) {
@@ -200,15 +202,28 @@ async function callModel(params: {
     headers["X-Title"] = "Model Crop Tool";
   }
 
-  const response = await fetch(`${params.baseUrl.replace(/\/$/, "")}/chat/completions`, {
-    method: "POST",
-    headers,
-    body: JSON.stringify({
-      model: params.model,
-      temperature: 0,
-      messages: [{ role: "user", content }],
-    }),
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), modelRequestTimeoutMs);
+  let response: globalThis.Response;
+  try {
+    response = await fetch(`${params.baseUrl.replace(/\/$/, "")}/chat/completions`, {
+      method: "POST",
+      headers,
+      signal: controller.signal,
+      body: JSON.stringify({
+        model: params.model,
+        temperature: 0,
+        messages: [{ role: "user", content }],
+      }),
+    });
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new Error(`模型接口超过 ${Math.round(modelRequestTimeoutMs / 1000)} 秒未返回`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
 
   if (!response.ok) {
     throw new Error(`模型接口失败：${response.status} ${await response.text()}`);
@@ -338,26 +353,46 @@ async function runTask(task: ModelTask, input: {
     await fs.writeFile(configPath, JSON.stringify(config, null, 2), "utf8");
 
     const powershellExe = process.env.POWERSHELL_EXE || "powershell.exe";
-    const { stdout, stderr } = await execFileAsync(powershellExe, [
-      "-NoProfile",
-      "-ExecutionPolicy",
-      "Bypass",
-      "-File",
-      scriptPath,
-      "-ConfigPath",
-      configPath,
-    ], { maxBuffer: 1024 * 1024 * 20 });
-    if (stdout.trim()) pushLog(task, stdout.trim());
-    if (stderr.trim()) pushLog(task, stderr.trim());
+    const resultDir = path.join(task.outputDir, "result", input.stage, input.subject);
+    const imageDir = path.join(resultDir, "image");
+    try {
+      const { stdout, stderr } = await execFileAsync(powershellExe, [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        scriptPath,
+        "-ConfigPath",
+        configPath,
+      ], { maxBuffer: 1024 * 1024 * 20, timeout: cropScriptTimeoutMs, killSignal: "SIGKILL" });
+      if (stdout.trim()) pushLog(task, stdout.trim());
+      if (stderr.trim()) pushLog(task, stderr.trim());
+    } catch (error) {
+      let generatedFiles: string[] = [];
+      try {
+        generatedFiles = (await fs.readdir(imageDir)).filter((name) => name.toLowerCase().endsWith(".png"));
+      } catch {
+        generatedFiles = [];
+      }
+      if (!generatedFiles.length) {
+        throw error;
+      }
+      pushLog(task, `截题脚本超过 ${Math.round(cropScriptTimeoutMs / 1000)} 秒未退出，已终止脚本并继续使用已生成的 ${generatedFiles.length} 张图片。`);
+    }
+
+    task.resultDir = resultDir;
+    const files = (await fs.readdir(imageDir)).filter((name) => name.toLowerCase().endsWith(".png"));
+    if (!files.length) {
+      throw new Error("截题脚本未生成图片，请检查源文件是否包含可识别题目。");
+    }
+
+    task.progress = 65;
+    pushLog(task, `截图完成，共生成 ${files.length} 张图片，开始分类。`);
 
     task.phase = "classify";
     task.progress = 70;
     pushLog(task, "截图完成，开始生成模型分类结果。");
 
-    const resultDir = path.join(task.outputDir, "result", input.stage, input.subject);
-    task.resultDir = resultDir;
-    const imageDir = path.join(resultDir, "image");
-    const files = (await fs.readdir(imageDir)).filter((name) => name.toLowerCase().endsWith(".png"));
     const manifestPath = path.join(resultDir, "manifest_简化维度.csv");
     let manifestRows: Record<string, string>[] = [];
     try {
@@ -451,7 +486,7 @@ router.post("/tasks", upload.single("file"), async (req: Request, res: Response)
   tasks.set(taskId, task);
   pushLog(task, "任务已创建。");
 
-  await runTask(task, {
+  void runTask(task, {
     file: req.file,
     stage,
     subject,
@@ -464,7 +499,7 @@ router.post("/tasks", upload.single("file"), async (req: Request, res: Response)
     useVision: String(req.body.useVision) === "true",
   });
 
-  res.status(task.status === "failed" ? 500 : 200).json({ success: task.status !== "failed", data: task, error: task.status === "failed" ? task.message : undefined });
+  res.status(202).json({ success: true, data: task });
 });
 
 router.get("/tasks/:taskId", (req: Request, res: Response): void => {

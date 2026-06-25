@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, BrainCircuit, CheckCircle2, Download, FileText, FolderOpen, Loader2, Sparkles, X, ZoomIn } from "lucide-react";
-import { createModelCropTask, getModelCropExportUrl, updateModelCropQuestion, type ModelCropResult, type ModelCropTask } from "@/utils/modelCropApi";
+import { createModelCropTask, getModelCropExportUrl, getModelCropTask, updateModelCropQuestion, type ModelCropResult, type ModelCropTask } from "@/utils/modelCropApi";
 
 const defaultDimensionText = `示例：
 - 函数与导数题：必含函数图象或导函数图象，考察图象与性质综合。
@@ -217,6 +217,22 @@ export default function ModelCropPage() {
     return { total: task.results.length, doubtful, ok: task.results.length - doubtful };
   }, [task]);
 
+  useEffect(() => {
+    if (!task || task.status !== "running") return;
+    const timer = window.setInterval(async () => {
+      try {
+        const nextTask = await getModelCropTask(task.taskId);
+        setTask(nextTask);
+        if (nextTask.status === "failed") {
+          setError(nextTask.message || "处理失败。");
+        }
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+      }
+    }, 2000);
+    return () => window.clearInterval(timer);
+  }, [task?.taskId, task?.status]);
+
   async function submit() {
     if (!file) {
       setError("请先选择 Word/PDF 文件。");
@@ -397,11 +413,11 @@ export default function ModelCropPage() {
           <button
             type="button"
             onClick={submit}
-            disabled={loading}
+            disabled={loading || task?.status === "running"}
             className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-emerald-300 px-5 py-4 text-sm font-bold text-zinc-950 transition hover:bg-emerald-200 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : <BrainCircuit className="h-5 w-5" />}
-            {loading ? "正在截题和分类..." : "开始处理"}
+            {loading ? "正在创建任务..." : task?.status === "running" ? "处理中，可继续等待进度" : "开始处理"}
           </button>
 
           {task ? (

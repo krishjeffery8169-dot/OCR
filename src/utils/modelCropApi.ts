@@ -69,6 +69,11 @@ export async function createModelCropTask(input: {
   return readEnvelope<ModelCropTask>(response);
 }
 
+export async function getModelCropTask(taskId: string) {
+  const response = await fetch(`/api/model-crop/tasks/${encodeURIComponent(taskId)}`);
+  return readEnvelope<ModelCropTask>(response);
+}
+
 export async function updateModelCropQuestion(taskId: string, qid: string, input: {
   qtype: string;
   dimension: string;
