@@ -219,18 +219,26 @@ export default function ModelCropPage() {
 
   useEffect(() => {
     if (!task || task.status !== "running") return;
-    const timer = window.setInterval(async () => {
+    let cancelled = false;
+    async function refreshTask() {
       try {
         const nextTask = await getModelCropTask(task.taskId);
+        if (cancelled) return;
         setTask(nextTask);
         if (nextTask.status === "failed") {
           setError(nextTask.message || "处理失败。");
         }
       } catch (err) {
+        if (cancelled) return;
         setError(err instanceof Error ? err.message : String(err));
       }
-    }, 2000);
-    return () => window.clearInterval(timer);
+    }
+    void refreshTask();
+    const timer = window.setInterval(refreshTask, 2000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
   }, [task?.taskId, task?.status]);
 
   async function submit() {
@@ -254,6 +262,10 @@ export default function ModelCropPage() {
         useVision,
       });
       setTask(nextTask);
+      if (nextTask.status === "running") {
+        const latestTask = await getModelCropTask(nextTask.taskId);
+        setTask(latestTask);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {

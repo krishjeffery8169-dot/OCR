@@ -503,6 +503,7 @@ router.post("/tasks", upload.single("file"), async (req: Request, res: Response)
 });
 
 router.get("/tasks/:taskId", (req: Request, res: Response): void => {
+  res.setHeader("Cache-Control", "no-store");
   const task = tasks.get(req.params.taskId);
   if (!task) {
     res.status(404).json({ success: false, error: "任务不存在或服务已重启。" });

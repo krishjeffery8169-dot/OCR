@@ -70,7 +70,9 @@ export async function createModelCropTask(input: {
 }
 
 export async function getModelCropTask(taskId: string) {
-  const response = await fetch(`/api/model-crop/tasks/${encodeURIComponent(taskId)}`);
+  const response = await fetch(`/api/model-crop/tasks/${encodeURIComponent(taskId)}?_=${Date.now()}`, {
+    cache: "no-store",
+  });
   return readEnvelope<ModelCropTask>(response);
 }
 
