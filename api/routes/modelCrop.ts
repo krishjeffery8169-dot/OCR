@@ -55,6 +55,47 @@ function safeSegment(value: string) {
   return value.replace(/[<>:"/\\|?*\x00-\x1F]/g, "_").replace(/\s+/g, "_").slice(0, 80) || "未命名";
 }
 
+function decodeUploadFileName(fileName: string) {
+  if (!/[ÃÂäåèéêçæï¼]/.test(fileName)) return fileName;
+  try {
+    const decoded = Buffer.from(fileName, "latin1").toString("utf8");
+    return decoded.includes("\uFFFD") ? fileName : decoded;
+  } catch {
+    return fileName;
+  }
+}
+
+function inferFileMeta(fileName: string) {
+  const name = fileName.replace(/\.[^.]+$/, "").replace(/\s+/g, "");
+  let stage = "";
+  let subject = "";
+
+  if (/高中|高考|高一|高二|高三|学业水平|学考|会考|一轮|二轮|必修|选修/.test(name)) {
+    stage = "高中";
+  } else if (/初中|中考|初一|初二|初三|七年级|八年级|九年级|七上|七下|八上|八下|九上|九下/.test(name)) {
+    stage = "初中";
+  } else if (/小学|小升初|一年级|二年级|三年级|四年级|五年级|六年级|一上|一下|二上|二下|三上|三下|四上|四下|五上|五下|六上|六下/.test(name)) {
+    stage = "小学";
+  }
+
+  const subjectRules: Array<[string, RegExp]> = [
+    ["道德与法治", /道德与法治/],
+    ["政治", /政治|思想政治|思政/],
+    ["数学", /数学/],
+    ["语文", /语文/],
+    ["英语", /英语|英文/],
+    ["物理", /物理/],
+    ["化学", /化学/],
+    ["生物", /生物/],
+    ["地理", /地理/],
+    ["历史", /历史/],
+    ["科学", /科学/],
+  ];
+  subject = subjectRules.find(([, pattern]) => pattern.test(name))?.[0] ?? "";
+
+  return { stage, subject };
+}
+
 function getDesktopScriptPath() {
   const desktop = path.join(os.homedir(), "Desktop");
   const candidates = [
@@ -316,8 +357,15 @@ async function runTask(task: ModelTask, input: {
     await fs.mkdir(task.outputDir, { recursive: true });
     const sourceDir = path.join(task.outputDir, "source");
     await fs.mkdir(sourceDir, { recursive: true });
-    const sourcePath = path.join(sourceDir, input.file.originalname);
+    const decodedFileName = decodeUploadFileName(input.file.originalname);
+    const inferredMeta = inferFileMeta(decodedFileName);
+    const effectiveStage = inferredMeta.stage || input.stage;
+    const effectiveSubject = inferredMeta.subject || input.subject;
+    const sourcePath = path.join(sourceDir, decodedFileName);
     await fs.writeFile(sourcePath, input.file.buffer);
+    if (effectiveStage !== input.stage || effectiveSubject !== input.subject) {
+      pushLog(task, `已根据文件名修正学段/学科：${effectiveStage} / ${effectiveSubject}`);
+    }
 
     task.phase = "crop";
     task.progress = 15;
@@ -331,15 +379,15 @@ async function runTask(task: ModelTask, input: {
     const config = {
       sourceDocx: sourcePath,
       outRoot: path.join(task.outputDir, "result"),
-      stage: input.stage,
-      subject: input.subject,
+      stage: effectiveStage,
+      subject: effectiveSubject,
       skipQuestionBeforeParagraph: 10,
       screenshotTimeoutMs: 30000,
       autoDetectImageQuestions: true,
       onlyImageQuestions: input.onlyImageQuestions,
       groupSharedMaterial: false,
       useNativeWordCrop: false,
-      defaultType: `${input.subject}图像题`,
+      defaultType: `${effectiveSubject}图像题`,
       defaultQtype: "选择_填空_解答",
       defaultKnowledgePoint: candidates.join("|") || "待确认",
       defaultKnowledgeMap: {
@@ -353,7 +401,7 @@ async function runTask(task: ModelTask, input: {
     await fs.writeFile(configPath, JSON.stringify(config, null, 2), "utf8");
 
     const powershellExe = process.env.POWERSHELL_EXE || "powershell.exe";
-    const resultDir = path.join(task.outputDir, "result", input.stage, input.subject);
+    const resultDir = path.join(task.outputDir, "result", effectiveStage, effectiveSubject);
     const imageDir = path.join(resultDir, "image");
     try {
       const { stdout, stderr } = await execFileAsync(powershellExe, [
@@ -368,16 +416,7 @@ async function runTask(task: ModelTask, input: {
       if (stdout.trim()) pushLog(task, stdout.trim());
       if (stderr.trim()) pushLog(task, stderr.trim());
     } catch (error) {
-      let generatedFiles: string[] = [];
-      try {
-        generatedFiles = (await fs.readdir(imageDir)).filter((name) => name.toLowerCase().endsWith(".png"));
-      } catch {
-        generatedFiles = [];
-      }
-      if (!generatedFiles.length) {
-        throw error;
-      }
-      pushLog(task, `截题脚本超过 ${Math.round(cropScriptTimeoutMs / 1000)} 秒未退出，已终止脚本并继续使用已生成的 ${generatedFiles.length} 张图片。`);
+      throw error;
     }
 
     task.resultDir = resultDir;
@@ -394,6 +433,11 @@ async function runTask(task: ModelTask, input: {
     pushLog(task, "截图完成，开始生成模型分类结果。");
 
     const manifestPath = path.join(resultDir, "manifest_简化维度.csv");
+    try {
+      await fs.access(manifestPath);
+    } catch {
+      throw new Error("截题脚本未生成结果表，已停止使用半成品图片。请重新处理文件。");
+    }
     let manifestRows: Record<string, string>[] = [];
     try {
       const csv = await fs.readFile(manifestPath, "utf8");
@@ -421,8 +465,8 @@ async function runTask(task: ModelTask, input: {
           imagePath,
           fileName,
           questionText,
-          stage: input.stage,
-          subject: input.subject,
+          stage: effectiveStage,
+          subject: effectiveSubject,
           dimensionText: input.dimensionText,
           candidates,
         });
@@ -442,8 +486,8 @@ async function runTask(task: ModelTask, input: {
         imageName: fileName,
         imageUrl: `/api/model-crop/tasks/${task.taskId}/images/${encodeURIComponent(fileName)}`,
         text: questionText,
-        stage: input.stage,
-        subject: input.subject,
+        stage: effectiveStage,
+        subject: effectiveSubject,
         captureMode,
         ...classified,
       });

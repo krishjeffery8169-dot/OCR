@@ -240,7 +240,9 @@ function Capture-HtmlImage([string]$EdgePath, [string]$HtmlPath, [string]$RawPat
   if(!(Test-Path $RawPath)){ throw "Edge 未生成截图" }
   Trim-WhiteImage $RawPath $OutputPath
   Remove-Item $RawPath -Force -ErrorAction SilentlyContinue
-  Remove-Item $ProfileDir -Recurse -Force -ErrorAction SilentlyContinue
+  # Edge may keep child processes alive briefly after the screenshot file is written.
+  # Deleting its profile synchronously can block the whole crop script and prevent
+  # manifest output, so leave the temp profile behind instead of hanging the task.
 }
 
 function Get-ItemTypeForOutput($item) {
@@ -329,6 +331,15 @@ function Get-MediaHtmlFile([string]$rid, $relMap, [string]$mediaDir) {
     return $pngFile
   }
   return ""
+}
+
+function Is-QuestionImageRid([string]$rid, $relMap) {
+  if([string]::IsNullOrWhiteSpace($rid) -or -not $relMap.ContainsKey($rid)){ return $false }
+  $file = Split-Path $relMap[$rid] -Leaf
+  # Legacy equation objects are often WMF/EMF. They should render in the stem,
+  # but they must not make a pure-formula question count as a diagram question.
+  if($file -match '\.(wmf|emf)$'){ return $false }
+  return $file -match '\.(png|jpg|jpeg|gif)$'
 }
 
 function Get-ParagraphHtml([string]$pXml, $relMap, [string]$mediaDir) {
@@ -423,7 +434,7 @@ function Select-KnowledgePointForQuestion([string]$knowledgePoint, [string]$ques
 }
 
 function Is-AnswerOrAnalysisLine([string]$text) {
-  return $text -match '^\s*(【答案】|答案[:：]|【解析】|解析[:：])'
+  return $text -match '^\s*(【答案】|答案[:：]|【解析】|解析[:：]|考点\s*\d*[:：]?|易错点[:：]?|错因分析[:：]?|方法技巧[:：]?|名师点拨[:：]?)'
 }
 
 function Is-SectionHeadingLine([string]$text) {
@@ -494,6 +505,9 @@ function Get-QuestionEndIndex($items, [int]$start, [int]$qidEndNumber, [bool]$is
         }
         break
       }
+    } elseif(Is-AnswerOrAnalysisLine ([string]$items[$i].Text)){
+      $end=$i
+      break
     } elseif(Is-SectionHeadingLine ([string]$items[$i].Text)){
       if($isRange){
         continue
@@ -596,7 +610,7 @@ foreach($pm in [regex]::Matches($docXml,'<w:p[\s\S]*?</w:p>')){
   $imgIds=New-Object System.Collections.Generic.List[string]
   foreach($im in [regex]::Matches($pXml,'r:embed="([^"]+)"')){
     $rid=$im.Groups[1].Value
-    if($relMap.ContainsKey($rid)){ $imgIds.Add($rid) }
+    if(Is-QuestionImageRid $rid $relMap){ $imgIds.Add($rid) }
   }
   $paragraphs.Add([pscustomobject]@{Index=$paraIndex; Text=$text; Xml=$pXml; ImageIds=$imgIds})
   $paraIndex++
@@ -642,9 +656,9 @@ if ($hasConfiguredItems) {
     })
   }
   for($q=0;$q -lt $questionInfos.Count;$q++){
-    $end = $paragraphs.Count
+    $end = Get-QuestionEndIndex $paragraphs ([int]$questionInfos[$q].SafeStart) ([int]$questionInfos[$q].Qid) $false $skipBefore
     if($q -lt $questionInfos.Count-1){
-      $end = [int]$questionInfos[$q+1].SafeStart
+      $end = [Math]::Min($end, [int]$questionInfos[$q+1].SafeStart)
     }
     $questionInfos[$q].End = $end
     $questionInfos[$q].OwnHasImage = (Has-ImageInRange $paragraphs ([int]$questionInfos[$q].Start) $end)
