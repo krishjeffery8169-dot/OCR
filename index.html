@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>题图真实场景增强工具</title>
+  <title>题图手写标注工具</title>
   <style>
     :root {
       --ink: #1f221f;
@@ -239,8 +239,8 @@
     <section class="hero">
       <div class="card hero-main">
         <div class="eyebrow">PURE WEB VERSION</div>
-        <h1>题图真实场景增强工具</h1>
-        <p class="lead">打开网页即可使用：上传图片或选择图片文件夹，在浏览器内叠加真人草稿式手写干扰，也可以生成旧纸翻拍、斜拍阴影、折痕污渍等真实拍摄效果。无需 Python、无需本地服务、不会上传原图。</p>
+        <h1>题图手写标注工具</h1>
+        <p class="lead">打开网页即可使用：上传图片或选择图片文件夹，在浏览器内给题干关键词加手写圈注、下划线和标记，并按题目类型写入手写解题步骤。无需 Python、无需本地服务、不会上传原图。</p>
       </div>
       <div class="card status">
         <div class="status-item"><strong>处理方式</strong><span>浏览器本地处理</span></div>
@@ -266,14 +266,13 @@
         <p class="hint">支持 png、jpg、jpeg、webp、bmp。浏览器不允许网页直接读取任意本地路径，所以这里使用上传/选择文件夹方式。</p>
 
         <h2 style="margin-top: 22px;">2. 参数</h2>
-        <label for="sceneMode">增强场景</label>
+        <label for="sceneMode">标注方式</label>
         <select id="sceneMode">
-          <option value="handwriting" selected>仅手写干扰</option>
-          <option value="old_scan">旧试卷扫描感</option>
-          <option value="phone_desk">手机桌面斜拍</option>
-          <option value="folded_dirty">折页旧纸翻拍</option>
+          <option value="context_aware" selected>题干圈注 + 解题步骤</option>
+          <option value="stem_marks">仅题干圈注/下划线</option>
+          <option value="solution_steps">仅手写解题步骤</option>
         </select>
-        <p class="hint">“手机桌面斜拍”和“折页旧纸翻拍”会改变画布尺寸，模拟背景、阴影、透视和拍摄感。</p>
+        <p class="hint">圈注会优先作用在题干第一行和条件区域，不再生成旧纸、斜拍、折页等场景效果。</p>
 
         <div class="options">
           <label class="radio-card">
@@ -316,7 +315,7 @@
         </div>
         <div class="two">
           <div>
-            <label for="strength">真实化强度</label>
+            <label for="strength">标注强度</label>
             <select id="strength">
               <option value="light">轻度</option>
               <option value="medium" selected>中度</option>
@@ -336,7 +335,7 @@
         </div>
         <div class="progress" aria-label="处理进度"><span id="progressBar"></span></div>
 
-        <div class="note">真实场景模式会加入旧纸泛黄、暗角、纸边阴影、折痕、揉皱褶皱、局部字体模糊、污渍、轻微失焦和拍摄背景。下载 ZIP 会自动附带 manifest.csv，记录原图、输出图、场景、强度、密度、覆盖区域和版本号。</div>
+        <div class="note">当前版本先保留“题干圈注 + 解题步骤”这套效果：圈关键词、下划线条件、少量箭头/标记，并在中下部写入与题目类型相关的手写步骤。下载 ZIP 会自动附带 manifest.csv。</div>
       </section>
 
       <section class="card panel">
@@ -662,6 +661,159 @@
       }
     }
 
+    function drawHandEllipse(ctx, x0, y0, x1, y1, alpha = 0.35) {
+      ctx.save();
+      ctx.strokeStyle = "rgb(24,29,28)";
+      ctx.lineWidth = Math.max(1, Math.min(ctx.canvas.width, ctx.canvas.height) / 520);
+      ctx.globalAlpha = alpha;
+      for (let i = 0; i < 2; i++) {
+        ctx.beginPath();
+        ctx.ellipse(
+          (x0 + x1) / 2 + rint(-4, 4),
+          (y0 + y1) / 2 + rint(-3, 3),
+          Math.max(8, (x1 - x0) / 2 + rint(-4, 4)),
+          Math.max(6, (y1 - y0) / 2 + rint(-3, 3)),
+          (rand() - 0.5) * 0.09,
+          0,
+          Math.PI * 2
+        );
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
+    function drawHandUnderline(ctx, x0, y, x1, alpha = 0.28) {
+      ctx.save();
+      ctx.strokeStyle = "rgb(24,29,28)";
+      ctx.lineWidth = Math.max(1, Math.min(ctx.canvas.width, ctx.canvas.height) / 650);
+      ctx.globalAlpha = alpha;
+      ctx.lineCap = "round";
+      ctx.beginPath();
+      for (let i = 0; i <= 6; i++) {
+        const t = i / 6;
+        const x = x0 + (x1 - x0) * t;
+        const yy = y + rint(-4, 4);
+        if (i === 0) ctx.moveTo(x, yy);
+        else ctx.lineTo(x, yy);
+      }
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    function drawMiniSketch(ctx, w, h) {
+      const sx = w * (0.72 + rand() * 0.08);
+      const sy = h * (0.13 + rand() * 0.10);
+      const s = Math.min(w, h) * (0.07 + rand() * 0.025);
+      ctx.save();
+      ctx.globalAlpha = 0.26;
+      ctx.strokeStyle = "rgb(24,29,28)";
+      ctx.lineWidth = Math.max(1, Math.min(w, h) / 520);
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      ctx.beginPath();
+      ctx.moveTo(sx, sy + s);
+      ctx.lineTo(sx + s * 1.1, sy + s * 0.78);
+      ctx.lineTo(sx + s * 0.78, sy - s * 0.18);
+      ctx.closePath();
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(sx + s * 0.18, sy + s * 0.70);
+      ctx.lineTo(sx + s * 0.70, sy + s * 0.34);
+      ctx.lineTo(sx + s * 1.08, sy + s * 0.76);
+      ctx.stroke();
+      ctx.restore();
+      drawHandFormulaText(ctx, "中点", sx + s * 0.95, sy + s * 0.08, Math.max(13, s * 0.22), 0.22);
+    }
+
+    function getTopicSteps(fileName) {
+      const name = fileName || "";
+      if (/几何|三棱柱|棱锥|空间|圆|直线|平面|向量/.test(name)) {
+        return [
+          "先取A(0,0,0)，B(a,0,0)，C(0,b,0)",
+          "D,E,F为中点，写出坐标再判定",
+          "四点共面 → 看混合积是否为0",
+          "球直径：检验对角端点距离最大",
+          "异面角：转成向量夹角 cosθ=|u·v|/(|u||v|)"
+        ];
+      }
+      if (/概率|统计|抽样|频率|分布/.test(name)) {
+        return [
+          "先列样本数，按分层比例分配",
+          "至少一人低于x分 → 用对立事件",
+          "P=1-P(都不低于x)",
+          "两项考核相互独立，分甲乙分别算",
+          "最后相乘得同时获得资格"
+        ];
+      }
+      if (/函数|导数|单调|图象|图像/.test(name)) {
+        return [
+          "先看平移和伸缩变换",
+          "令内层变量t，换回x区间",
+          "求导判断单调性",
+          "注意横坐标变为原来的倍数",
+          "最后和选项区间比对"
+        ];
+      }
+      return [
+        "先圈已知条件，找关键词",
+        "把题干条件转成式子",
+        "再看图形/选项对应关系",
+        "必要时设未知量列方程",
+        "最后代入检验"
+      ];
+    }
+
+    function addStemMarks(canvas, strength) {
+      const ctx = canvas.getContext("2d");
+      const w = canvas.width;
+      const h = canvas.height;
+      const level = { light: 0.75, medium: 1, heavy: 1.18 }[strength] || 1;
+      const top = h < 700 ? h * 0.05 : h * 0.035;
+      const rowH = Math.max(20, h * 0.055);
+
+      drawHandEllipse(ctx, w * 0.14, top, w * 0.31, top + rowH, 0.34 * level);
+      drawHandEllipse(ctx, w * 0.34, top, w * 0.53, top + rowH, 0.34 * level);
+      drawHandEllipse(ctx, w * 0.55, top, w * 0.67, top + rowH, 0.26 * level);
+      if (w > 900) drawHandEllipse(ctx, w * 0.70, top, w * 0.96, top + rowH, 0.25 * level);
+
+      drawHandUnderline(ctx, w * 0.10, top + rowH * 1.35, w * 0.42, 0.30 * level);
+      drawHandUnderline(ctx, w * 0.43, top + rowH * 1.35, w * 0.72, 0.22 * level);
+      drawHandUnderline(ctx, w * 0.08, h * 0.79, w * 0.30, 0.20 * level);
+      drawHandUnderline(ctx, w * 0.35, h * 0.79, w * 0.66, 0.18 * level);
+
+      if (strength !== "light") drawMiniSketch(ctx, w, h);
+      drawHandFormulaText(ctx, "条件", w * 0.68, top + rowH * 1.85, Math.max(14, Math.min(w, h) / 45), 0.20 * level);
+    }
+
+    function addSolutionSteps(canvas, file, density, region) {
+      const ctx = canvas.getContext("2d");
+      const w = canvas.width;
+      const h = canvas.height;
+      const steps = getTopicSteps(file.webkitRelativePath || file.name);
+      const map = { light: 3, medium: 4, heavy: 5 };
+      const count = map[density] || 4;
+      const size = Math.max(14, Math.floor(Math.min(w, h) / 48));
+      const [yMin, yMax] = regionYRange(region, h, size);
+      let y = Math.max(yMin, h * 0.48);
+      const xBase = w * 0.08;
+      ctx.save();
+      for (let i = 0; i < Math.min(count, steps.length); i++) {
+        const text = steps[i];
+        const x = xBase + rint(-10, 16);
+        drawHandFormulaText(ctx, text, x, y + rint(-4, 4), size + rint(-2, 2), 0.19 + rand() * 0.10);
+        y += Math.max(size * 1.25, (yMax - yMin) / Math.max(5, count + 1));
+      }
+      for (let i = 0; i < rint(3, density === "heavy" ? 8 : 5); i++) {
+        drawStroke(ctx, w, h, density === "heavy" ? 1.2 : 0.8, region);
+      }
+      ctx.restore();
+    }
+
+    function addContextAwareAnnotations(canvas, file, density, region, mode, strength) {
+      if (mode === "context_aware" || mode === "stem_marks") addStemMarks(canvas, strength);
+      if (mode === "context_aware" || mode === "solution_steps") addSolutionSteps(canvas, file, density, region);
+    }
+
     function addHandwriting(canvas, density, region) {
       const ctx = canvas.getContext("2d");
       const w = canvas.width;
@@ -972,6 +1124,7 @@
     }
 
     function makeRealSceneCanvas(source, sceneMode, strength) {
+      if (sceneMode === "context_aware" || sceneMode === "stem_marks" || sceneMode === "solution_steps") return source;
       if (sceneMode === "handwriting") return source;
       addLocalTextBlur(source, strength, sceneMode);
       drawPaperAging(source, strength, sceneMode);
@@ -1014,7 +1167,7 @@
       canvas.height = img.naturalHeight;
       const ctx = canvas.getContext("2d");
       ctx.drawImage(img, 0, 0);
-      addHandwriting(canvas, density, region);
+      addContextAwareAnnotations(canvas, file, density, region, sceneMode, strength);
       const finalCanvas = makeRealSceneCanvas(canvas, sceneMode, strength);
       const blob = await new Promise(resolve => finalCanvas.toBlob(resolve, mime, 0.92));
       URL.revokeObjectURL(img.src);
@@ -1047,7 +1200,7 @@
       $("downloadBtn").disabled = true;
       $("zipState").textContent = "生成中";
       $("progressBar").style.width = "0%";
-      $("log").textContent = `开始处理 ${files.length} 张图片，共 ${files.length * variants} 个输出，场景：${sceneMode}，强度：${strength}，密度：${density}，覆盖区域：${region}。`;
+      $("log").textContent = `开始处理 ${files.length} 张图片，共 ${files.length * variants} 个输出，标注方式：${sceneMode}，强度：${strength}，密度：${density}，覆盖区域：${region}。`;
       $("processBtn").disabled = true;
       try {
         const total = files.length * variants;
@@ -1121,7 +1274,7 @@
     }
 
     function createManifestBlob(entries) {
-      const header = ["source", "output", "scene_mode", "strength", "density", "region", "variant", "width", "height"];
+      const header = ["source", "output", "annotation_mode", "strength", "density", "region", "variant", "width", "height"];
       const rows = entries.map(entry => [
         entry.sourcePath,
         entry.name,
@@ -1187,7 +1340,7 @@
       const zip = await makeZip(entries);
       const a = document.createElement("a");
       a.href = URL.createObjectURL(zip);
-      a.download = `手写干扰结果_${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "")}.zip`;
+      a.download = `题干手写标注结果_${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "")}.zip`;
       a.click();
       URL.revokeObjectURL(a.href);
       $("zipState").textContent = "已下载";
