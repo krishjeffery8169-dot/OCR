@@ -364,12 +364,12 @@
   <script>
     const imageTypes = new Set(["image/png", "image/jpeg", "image/webp", "image/bmp"]);
     const formulaBank = [
-      "设P(x,y,0), 则OC=(√3,-1,4)",
-      "BP=(x,y²,0),  OC⊥BP",
+      "设P(x,y,0)，则OC=(√3,-1,4)",
+      "BP=(x,y²,0)，OC⊥BP",
       "得3x+y²=0，代入圆心(5,1)",
-      "OC≥1,  所以m=BP=√(x²+d²)",
-      "作rx方程 继续化简 得解线总的添",
-      "a=1/3+4k,  b=1/3+4k",
+      "OC≥1，所以m=BP=√(x²+d²)",
+      "作rx方程，继续化简，得线总的添",
+      "a=1/3+4k，b=1/3+4k",
       "AB=OB-OA", "OA+2OB", "sin(pi/2-b)=1/2",
       "m²+y²-2my+1=0", "x²+y²=1", "∴x=my+1"
     ];
@@ -542,16 +542,16 @@
     }
 
     function drawSoftFontGlyph(ctx, ch, width, height, alpha) {
-      const gray = rint(20, 68);
-      ctx.globalAlpha = Math.max(0.18, Math.min(0.58, alpha + (rand() - 0.5) * 0.16));
+      const gray = rint(24, 76);
+      ctx.globalAlpha = Math.max(0.14, Math.min(0.48, alpha + (rand() - 0.5) * 0.14));
       ctx.fillStyle = `rgb(${gray},${gray},${Math.max(0, gray - 4)})`;
-      ctx.font = `${Math.round(height * (0.78 + rand() * 0.12))}px STXingkai, KaiTi, SimKai, cursive`;
-      ctx.translate((rand() - 0.5) * width * 0.10, (rand() - 0.5) * height * 0.16);
-      ctx.rotate((rand() - 0.5) * 0.08);
-      ctx.scale(0.88 + rand() * 0.16, 0.94 + rand() * 0.14);
+      ctx.font = `${Math.round(height * (0.76 + rand() * 0.11))}px KaiTi, STKaiti, SimKai, STXingkai, cursive`;
+      ctx.translate((rand() - 0.5) * width * 0.16, (rand() - 0.5) * height * 0.22);
+      ctx.rotate((rand() - 0.5) * 0.13);
+      ctx.scale(0.82 + rand() * 0.20, 0.90 + rand() * 0.18);
       ctx.fillText(ch, 0, height * 0.78);
-      if (rand() < 0.22) {
-        ctx.globalAlpha *= 0.32;
+      if (rand() < 0.16) {
+        ctx.globalAlpha *= 0.25;
         ctx.fillText(ch, (rand() - 0.5) * 1.2, height * 0.78 + (rand() - 0.5) * 1.2);
       }
     }
@@ -567,11 +567,11 @@
 
       ctx.save();
       ctx.translate(x + (rand() - 0.5) * size * 0.10, top);
-      ctx.rotate((rand() - 0.5) * 0.11);
-      ctx.scale(0.92 + rand() * 0.16, 0.90 + rand() * 0.18);
-      ctx.globalAlpha = Math.max(0.20, Math.min(0.78, alpha + (rand() - 0.5) * 0.18));
+      ctx.rotate((rand() - 0.5) * 0.14);
+      ctx.scale(0.86 + rand() * 0.22, 0.88 + rand() * 0.20);
+      ctx.globalAlpha = Math.max(0.16, Math.min(0.58, alpha + (rand() - 0.5) * 0.16));
       ctx.strokeStyle = `rgb(${gray},${gray},${Math.max(0, gray - 5)})`;
-      ctx.lineWidth = Math.max(0.75, size * (0.036 + rand() * 0.017));
+      ctx.lineWidth = Math.max(0.65, size * (0.028 + rand() * 0.014));
       ctx.lineCap = "round";
       ctx.lineJoin = "round";
       if (strokes) {
@@ -592,7 +592,12 @@
 
     function drawHandFormulaText(ctx, text, x, y, size, alpha) {
       let cursor = x;
-      for (const ch of text) cursor += drawHandGlyph(ctx, ch, cursor, y, size, alpha);
+      const drift = (rand() - 0.5) * 0.34;
+      for (const ch of text) {
+        const localY = y + (cursor - x) * drift / 120 + (rand() - 0.5) * size * 0.18;
+        cursor += drawHandGlyph(ctx, ch, cursor, localY, size, alpha);
+        if (rand() < 0.24) cursor += (rand() - 0.5) * size * 0.22;
+      }
       return cursor;
     }
 
@@ -606,9 +611,9 @@
       if (rand() > 0.34) return;
       const [yMin, yMax] = regionYRange(region, h, Math.min(w, h) / 24);
       ctx.save();
-      ctx.globalAlpha = 0.035 + rand() * 0.055;
+      ctx.globalAlpha = 0.024 + rand() * 0.040;
       ctx.strokeStyle = "rgb(20,20,18)";
-      ctx.lineWidth = rint(5, 13);
+      ctx.lineWidth = rint(3, 9);
       ctx.lineCap = "round";
       ctx.beginPath();
       const x = rint(w * 0.05, w * 0.86);
@@ -627,9 +632,10 @@
     }
 
     function drawStroke(ctx, w, h, densityScale, region) {
-      ctx.globalAlpha = 0.22 + rand() * 0.28;
-      ctx.strokeStyle = `rgb(${rint(0, 65)},${rint(0, 65)},${rint(0, 60)})`;
-      ctx.lineWidth = rand() < 0.75 ? 1 : 2;
+      ctx.globalAlpha = 0.14 + rand() * 0.22;
+      const g = rint(18, 72);
+      ctx.strokeStyle = `rgb(${g},${g + rint(0, 4)},${g})`;
+      ctx.lineWidth = rand() < 0.92 ? 1 : 2;
       ctx.lineCap = "round";
       ctx.beginPath();
       const [yLow, yHigh] = regionYRange(region, h, Math.min(w, h) / 28);
@@ -667,8 +673,8 @@
       };
       const [densityScale, minLines, maxLines] = map[density];
       const lineCount = rint(minLines, maxLines);
-      const sizeMin = Math.max(15, Math.floor(Math.min(w, h) / 52));
-      const sizeMax = Math.max(sizeMin + 4, Math.floor(Math.min(w, h) / 34));
+      const sizeMin = Math.max(14, Math.floor(Math.min(w, h) / 58));
+      const sizeMax = Math.max(sizeMin + 4, Math.floor(Math.min(w, h) / 40));
 
       ctx.save();
       for (let i = 0; i < lineCount; i++) {
@@ -680,12 +686,12 @@
         const y = rint(yMin, yMax);
         ctx.save();
         ctx.translate(x, y);
-        ctx.rotate((rand() - 0.5) * 0.11);
-        const endX = drawHandFormulaText(ctx, text, 0, 0, size, 0.25 + rand() * 0.16);
+        ctx.rotate((rand() - 0.5) * 0.13);
+        const endX = drawHandFormulaText(ctx, text, 0, 0, size, 0.20 + rand() * 0.13);
         if (rand() < 0.35) {
-          ctx.globalAlpha = 0.15 + rand() * 0.20;
-          ctx.strokeStyle = "rgb(24,28,27)";
-          ctx.lineWidth = rand() < 0.86 ? 1 : 2;
+          ctx.globalAlpha = 0.10 + rand() * 0.16;
+          ctx.strokeStyle = "rgb(28,32,31)";
+          ctx.lineWidth = 1;
           ctx.beginPath();
           ctx.moveTo(rint(0, size), rint(size * 0.45, size * 0.9));
           ctx.lineTo(Math.min(endX + rint(-size, size), w), rint(size * 0.45, size * 0.9));
