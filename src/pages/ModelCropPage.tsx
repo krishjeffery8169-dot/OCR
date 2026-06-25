@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react";
-import { AlertTriangle, BrainCircuit, CheckCircle2, Download, FileText, FolderOpen, Loader2, Sparkles } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { AlertTriangle, BrainCircuit, CheckCircle2, Download, FileText, FolderOpen, Loader2, Sparkles, X, ZoomIn } from "lucide-react";
 import { createModelCropTask, getModelCropExportUrl, updateModelCropQuestion, type ModelCropResult, type ModelCropTask } from "@/utils/modelCropApi";
 
 const defaultDimensionText = `示例：
@@ -7,6 +7,37 @@ const defaultDimensionText = `示例：
 - 几何题：立体几何、解析几何，必须带图。
 - 概率统计与建模题：统计图表、真实情境建模图。
 - 综合压轴题：多模块交叉，贴近高考压轴题形态。`;
+
+function inferFileMeta(fileName: string) {
+  const name = fileName.replace(/\.[^.]+$/, "").replace(/\s+/g, "");
+  let stage = "";
+  let subject = "";
+
+  if (/高中|高考|高一|高二|高三|学业水平|学考|会考|一轮|二轮|必修|选修/.test(name)) {
+    stage = "高中";
+  } else if (/初中|中考|初一|初二|初三|七年级|八年级|九年级|七上|七下|八上|八下|九上|九下/.test(name)) {
+    stage = "初中";
+  } else if (/小学|小升初|一年级|二年级|三年级|四年级|五年级|六年级|一上|一下|二上|二下|三上|三下|四上|四下|五上|五下|六上|六下/.test(name)) {
+    stage = "小学";
+  }
+
+  const subjectRules: Array<[string, RegExp]> = [
+    ["道德与法治", /道德与法治/],
+    ["政治", /政治|思想政治|思政/],
+    ["数学", /数学|数学习题|数学校考/],
+    ["语文", /语文/],
+    ["英语", /英语|英文/],
+    ["物理", /物理/],
+    ["化学", /化学/],
+    ["生物", /生物/],
+    ["地理", /地理/],
+    ["历史", /历史/],
+    ["科学", /科学/],
+  ];
+  subject = subjectRules.find(([, pattern]) => pattern.test(name))?.[0] ?? "";
+
+  return { stage, subject };
+}
 
 function FieldLabel({ children }: { children: string }) {
   return <label className="text-xs font-semibold uppercase tracking-[0.22em] text-cyan-200/70">{children}</label>;
@@ -33,6 +64,16 @@ function ResultCard({ taskId, result, onUpdated }: { taskId: string; result: Mod
   const [dimension, setDimension] = useState(result.dimension);
   const [qtype, setQtype] = useState(result.qtype);
   const [saving, setSaving] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
+
+  useEffect(() => {
+    if (!previewOpen) return;
+    function closeOnEsc(event: KeyboardEvent) {
+      if (event.key === "Escape") setPreviewOpen(false);
+    }
+    window.addEventListener("keydown", closeOnEsc);
+    return () => window.removeEventListener("keydown", closeOnEsc);
+  }, [previewOpen]);
 
   async function save() {
     setSaving(true);
@@ -52,8 +93,58 @@ function ResultCard({ taskId, result, onUpdated }: { taskId: string; result: Mod
   return (
     <article className="grid gap-4 rounded-[24px] border border-white/10 bg-black/20 p-4 lg:grid-cols-[280px_minmax(0,1fr)]">
       <div className="overflow-hidden rounded-[18px] border border-white/10 bg-white">
-        <img src={result.imageUrl} alt={result.imageName} className="max-h-[360px] w-full object-contain" />
+        <button
+          type="button"
+          onClick={() => setPreviewOpen(true)}
+          className="group relative block w-full cursor-zoom-in"
+          title="点击查看大图"
+        >
+          <img src={result.imageUrl} alt={result.imageName} className="max-h-[360px] w-full object-contain" />
+          <span className="absolute right-3 top-3 inline-flex items-center gap-1 rounded-full bg-zinc-950/75 px-3 py-1 text-xs font-semibold text-white opacity-0 shadow-lg transition group-hover:opacity-100">
+            <ZoomIn className="h-3.5 w-3.5" />
+            查看大图
+          </span>
+        </button>
       </div>
+      {previewOpen ? (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label={`查看 ${result.imageName}`}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-4 backdrop-blur-sm"
+          onClick={() => setPreviewOpen(false)}
+        >
+          <div className="flex max-h-full w-full max-w-6xl flex-col gap-3" onClick={(event) => event.stopPropagation()}>
+            <div className="flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-zinc-950/90 px-4 py-3 text-white">
+              <div className="min-w-0">
+                <p className="truncate text-sm font-semibold">{result.imageName}</p>
+                <p className="text-xs text-zinc-400">按 Esc 或点击背景关闭</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <a
+                  href={result.imageUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="rounded-xl border border-white/10 px-3 py-2 text-xs font-semibold text-cyan-100 transition hover:bg-white/10"
+                >
+                  新窗口打开
+                </a>
+                <button
+                  type="button"
+                  onClick={() => setPreviewOpen(false)}
+                  className="rounded-xl border border-white/10 p-2 text-zinc-200 transition hover:bg-white/10"
+                  aria-label="关闭大图"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+            </div>
+            <div className="min-h-0 overflow-auto rounded-2xl bg-white p-3">
+              <img src={result.imageUrl} alt={result.imageName} className="mx-auto max-h-[82vh] max-w-full object-contain" />
+            </div>
+          </div>
+        </div>
+      ) : null}
       <div className="space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
@@ -118,6 +209,7 @@ export default function ModelCropPage() {
   const [task, setTask] = useState<ModelCropTask | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [fileMetaHint, setFileMetaHint] = useState("");
 
   const summary = useMemo(() => {
     if (!task) return null;
@@ -151,6 +243,22 @@ export default function ModelCropPage() {
     } finally {
       setLoading(false);
     }
+  }
+
+  function selectFile(nextFile: File | null) {
+    setFile(nextFile);
+    setFileMetaHint("");
+    if (!nextFile) return;
+
+    const inferred = inferFileMeta(nextFile.name);
+    if (inferred.stage) setStage(inferred.stage);
+    if (inferred.subject) setSubject(inferred.subject);
+
+    const parts = [
+      inferred.stage ? `学段：${inferred.stage}` : "",
+      inferred.subject ? `学科：${inferred.subject}` : "",
+    ].filter(Boolean);
+    setFileMetaHint(parts.length ? `已根据文件名自动识别 ${parts.join("，")}。` : "文件名里没有识别到明确的学段/学科，可手动填写。");
   }
 
   function replaceResult(updated: ModelCropResult) {
@@ -214,9 +322,10 @@ export default function ModelCropPage() {
                 type="file"
                 accept=".docx,.pdf"
                 className="hidden"
-                onChange={(event) => setFile(event.target.files?.[0] ?? null)}
+                onChange={(event) => selectFile(event.target.files?.[0] ?? null)}
               />
             </label>
+            {fileMetaHint ? <p className="text-xs leading-5 text-cyan-100/70">{fileMetaHint}</p> : null}
           </div>
 
           <div className="grid grid-cols-2 gap-3">
